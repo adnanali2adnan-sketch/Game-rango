@@ -71,6 +71,19 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        checkAndTriggerOcrConsent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        checkAndTriggerOcrConsent(intent)
+    }
+
+    private fun checkAndTriggerOcrConsent(intent: Intent?) {
+        if (intent != null && intent.getBooleanExtra("EXTRA_START_OCR_IMMEDIATELY", false)) {
+            startOcrScreenCapture()
+        }
     }
 
     fun startFloatingCockpit() {

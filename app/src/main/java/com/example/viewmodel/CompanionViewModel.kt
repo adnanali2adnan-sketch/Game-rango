@@ -140,7 +140,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
                 Analyze the sequence of incoming multipliers provided: $multipliersStr
                 Output Format Requirements:
                 - RISK LEVEL: [LOW / MEDIUM / HIGH] (Based on streak analysis)
-                - NEXT STRATEGIC BET: [${'$'}X.XX / SKIP] (Based on Martingale parameters against current balance of ${'$'}$currentBalance)
+                - NEXT STRATEGIC BET: [PKR X.XX / SKIP] (Based on Martingale parameters against current balance of PKR $currentBalance)
                 - SAFE CASHOUT: [X.XXx / PASS]
                 - SHORT RATIONALE: [Provide a 1-sentence mathematical explanation of why this target was generated, e.g., "3 consecutive crashes under 1.2x suggest an imminent correction phase."]
                 Do not include markdown intros, greetings, or long conversational filler.

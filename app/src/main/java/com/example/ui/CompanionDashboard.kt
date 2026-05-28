@@ -405,7 +405,7 @@ fun DashboardTab(
                         OutlinedTextField(
                             value = balanceInput,
                             onValueChange = onBalanceChange,
-                            label = { Text("Running Balance ($)") },
+                            label = { Text("Running Balance (PKR)") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             colors = TextFieldDefaults.colors(
                                 focusedTextColor = RangoTextWhite,
@@ -436,7 +436,7 @@ fun DashboardTab(
                                 Text("SUGGESTED BASE", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                                 Spacer(Modifier.height(4.dp))
                                 Text(
-                                    "$${String.format("%.2f", metrics.suggestedBaseBet)}",
+                                    "PKR ${String.format("%.2f", metrics.suggestedBaseBet)}",
                                     color = RangoLimeGreen,
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.ExtraBold
@@ -457,7 +457,7 @@ fun DashboardTab(
                                 Text("STRATEGIC BET", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                                 Spacer(Modifier.height(4.dp))
                                 Text(
-                                    "$${String.format("%.2f", metrics.suggestedNextBet)}",
+                                    "PKR ${String.format("%.2f", metrics.suggestedNextBet)}",
                                     color = RangoDesertGold,
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.ExtraBold
@@ -880,7 +880,7 @@ fun HistoryRowItem(round: CrashRound) {
 
                     if (round.betAmount > 0.0) {
                         Text(
-                            "Bet: ${round.betAmount} | Target Cap: ${round.cashOutMultiplier}x",
+                            "Bet: PKR ${round.betAmount} | Target Cap: ${round.cashOutMultiplier}x",
                             style = MaterialTheme.typography.bodySmall.copy(color = RangoTextMuted)
                         )
                     } else {
@@ -1312,9 +1312,9 @@ fun SimulatorTab() {
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text("SEQUENCE LEVEL", style = MaterialTheme.typography.labelSmall.copy(color = RangoTextMuted))
-                Text("BET SIZE", style = MaterialTheme.typography.labelSmall.copy(color = RangoTextMuted))
-                Text("ACCUMULATED COST", style = MaterialTheme.typography.labelSmall.copy(color = RangoTextMuted))
-                Text("NET ON WIN", style = MaterialTheme.typography.labelSmall.copy(color = RangoTextMuted))
+                Text("BET (PKR)", style = MaterialTheme.typography.labelSmall.copy(color = RangoTextMuted))
+                Text("ACC. COST (PKR)", style = MaterialTheme.typography.labelSmall.copy(color = RangoTextMuted))
+                Text("NET WIN (PKR)", style = MaterialTheme.typography.labelSmall.copy(color = RangoTextMuted))
             }
         }
 
