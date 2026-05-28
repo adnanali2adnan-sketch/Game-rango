@@ -1,0 +1,6 @@
+{
+  "name": "Rango Companion",
+  "description": "AI-powered strategic pilot app for Rango. Features interactive live game advice from Google Gemini, multiplier logs tracker, and automated Martingale strategy simulator.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
