@@ -52,6 +52,8 @@ class MainActivity : ComponentActivity() {
         } else {
             Toast.makeText(this, "Screen capture authorization declined. OCR scanner offline.", Toast.LENGTH_SHORT).show()
         }
+        // Send our activity to the background instantly so we return straight to the game/underlying screen
+        moveTaskToBack(true)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

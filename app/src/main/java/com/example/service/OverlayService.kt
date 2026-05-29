@@ -504,21 +504,21 @@ class OverlayService : Service() {
             modifier = modifier
                 .clip(RoundedCornerShape(4.dp))
                 .background(bgColor)
-                .padding(vertical = 4.dp, horizontal = 2.dp),
+                .padding(vertical = 2.dp, horizontal = 1.dp),
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = title,
                     color = RangoTextWhite.copy(alpha = 0.85f),
-                    fontSize = 7.sp,
+                    fontSize = 6.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(1.dp))
                 Text(
                     text = value,
                     color = valueColor,
-                    fontSize = 11.sp,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.Black,
                     fontFamily = FontFamily.Monospace,
                     maxLines = 1
@@ -556,11 +556,11 @@ class OverlayService : Service() {
 
         Column(
             modifier = Modifier
-                .width(if (expanded) 310.dp else 125.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(RangoHorizon.copy(alpha = 0.94f))
-                .padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+                .width(if (expanded) 250.dp else 100.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(RangoHorizon.copy(alpha = 0.96f))
+                .padding(5.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             // Header Row
             Row(
