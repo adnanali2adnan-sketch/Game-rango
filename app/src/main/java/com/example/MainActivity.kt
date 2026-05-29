@@ -38,16 +38,27 @@ class MainActivity : ComponentActivity() {
     private val projectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == RESULT_OK && result.data != null) {
-            val serviceIntent = Intent(this, OverlayService::class.java).apply {
-                action = OverlayService.ACTION_START_PROJECTION
-                putExtra(OverlayService.EXTRA_PROJECTION_RESULT_CODE, result.resultCode)
-                putExtra(OverlayService.EXTRA_PROJECTION_INTENT_DATA, result.data)
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(serviceIntent)
+        val resultData = result.data
+        if (result.resultCode == RESULT_OK && resultData != null) {
+            // Save parameters into process-level global statics to solve OS-dependent intent serialization bottlenecks
+            OverlayService.savedProjectionResultCode = result.resultCode
+            OverlayService.savedProjectionIntent = resultData
+
+            // Fast, direct same-process active instance connection to trigger OCR scanning immediately
+            val activeService = OverlayService.activeInstance
+            if (activeService != null) {
+                activeService.startOcrFromActivity(result.resultCode, resultData)
             } else {
-                startService(serviceIntent)
+                val serviceIntent = Intent(this, OverlayService::class.java).apply {
+                    action = OverlayService.ACTION_START_PROJECTION
+                    putExtra(OverlayService.EXTRA_PROJECTION_RESULT_CODE, result.resultCode)
+                    putExtra(OverlayService.EXTRA_PROJECTION_INTENT_DATA, resultData)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(serviceIntent)
+                } else {
+                    startService(serviceIntent)
+                }
             }
         } else {
             Toast.makeText(this, "Screen capture authorization declined. OCR scanner offline.", Toast.LENGTH_SHORT).show()
@@ -84,6 +95,8 @@ class MainActivity : ComponentActivity() {
 
     private fun checkAndTriggerOcrConsent(intent: Intent?) {
         if (intent != null && intent.getBooleanExtra("EXTRA_START_OCR_IMMEDIATELY", false)) {
+            // Clear the extra so it doesn't trigger again on subsequent activity lifecycle resume loops
+            intent.removeExtra("EXTRA_START_OCR_IMMEDIATELY")
             startOcrScreenCapture()
         }
     }

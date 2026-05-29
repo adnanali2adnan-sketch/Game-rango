@@ -86,6 +86,13 @@ class OverlayService : Service() {
 
         // Global state for sharing with Activity if needed
         val isServiceRunning = MutableStateFlow(false)
+
+        // Static variables for passing MediaProjection parameters safely without bundle serialization bugs
+        @JvmStatic var savedProjectionResultCode: Int = -1
+        @JvmStatic var savedProjectionIntent: Intent? = null
+
+        // Static active instance listener for high-speed same-process callbacks
+        @Volatile @JvmStatic var activeInstance: OverlayService? = null
     }
 
     private lateinit var windowManager: WindowManager
@@ -123,6 +130,7 @@ class OverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        activeInstance = this
         isServiceRunning.value = true
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         
@@ -162,9 +170,21 @@ class OverlayService : Service() {
             when (intent.action) {
                 ACTION_START_PROJECTION -> {
                     val resultCode = intent.getIntExtra(EXTRA_PROJECTION_RESULT_CODE, -1)
-                    val data: Intent? = intent.getParcelableExtra(EXTRA_PROJECTION_INTENT_DATA)
-                    if (resultCode != -1 && data != null) {
-                        startMediaProjection(resultCode, data)
+                    val data: Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        intent.getParcelableExtra(EXTRA_PROJECTION_INTENT_DATA, Intent::class.java)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        intent.getParcelableExtra(EXTRA_PROJECTION_INTENT_DATA) as? Intent
+                    }
+                    
+                    // Fallback using companion static fields in case of parcelable serialization bottlenecks
+                    val finalCode = if (resultCode == android.app.Activity.RESULT_OK) resultCode else savedProjectionResultCode
+                    val finalIntent = data ?: savedProjectionIntent
+                    
+                    if (finalCode == android.app.Activity.RESULT_OK && finalIntent != null) {
+                        startMediaProjection(finalCode, finalIntent)
+                    } else {
+                        captureLogs.value = "Capture init error: code=$resultCode, nullData=${data == null}"
                     }
                 }
                 ACTION_STOP_OVERLAY -> {
@@ -181,6 +201,9 @@ class OverlayService : Service() {
     override fun onDestroy() {
         isServiceDestroying = true
         super.onDestroy()
+        if (activeInstance == this) {
+            activeInstance = null
+        }
         isServiceRunning.value = false
         stopOcrScanning()
         serviceScope.cancel()
@@ -502,23 +525,23 @@ class OverlayService : Service() {
     ) {
         Box(
             modifier = modifier
-                .clip(RoundedCornerShape(4.dp))
+                .clip(RoundedCornerShape(2.dp))
                 .background(bgColor)
-                .padding(vertical = 2.dp, horizontal = 1.dp),
+                .padding(vertical = 0.5.dp, horizontal = 1.dp),
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = title,
                     color = RangoTextWhite.copy(alpha = 0.85f),
-                    fontSize = 6.sp,
+                    fontSize = 4.5.sp,
                     fontWeight = FontWeight.Bold
                 )
-                Spacer(modifier = Modifier.height(1.dp))
+                Spacer(modifier = Modifier.height(0.3.dp))
                 Text(
                     text = value,
                     color = valueColor,
-                    fontSize = 10.sp,
+                    fontSize = 7.5.sp,
                     fontWeight = FontWeight.Black,
                     fontFamily = FontFamily.Monospace,
                     maxLines = 1
@@ -556,11 +579,11 @@ class OverlayService : Service() {
 
         Column(
             modifier = Modifier
-                .width(if (expanded) 250.dp else 100.dp)
-                .clip(RoundedCornerShape(10.dp))
+                .width(if (expanded) 124.dp else 46.dp)
+                .clip(RoundedCornerShape(6.dp))
                 .background(RangoHorizon.copy(alpha = 0.96f))
-                .padding(5.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+                .padding(3.dp),
+            verticalArrangement = Arrangement.spacedBy(1.5.dp)
         ) {
             // Header Row
             Row(
@@ -573,30 +596,31 @@ class OverlayService : Service() {
                         .weight(1f)
                         .clickable { isExpanded.value = !expanded },
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(1.5.dp)
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(10.dp)
+                            .size(6.dp)
                             .background(riskColor, CircleShape)
                     )
                     Text(
-                        text = if (expanded) "🟢 RANGO PILOT" else "RANGO HUD",
+                        text = if (expanded) "🟢 PILOT" else "HUD",
                         style = MaterialTheme.typography.labelSmall.copy(
                             color = RangoTextWhite,
-                            fontWeight = FontWeight.ExtraBold
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 7.5.sp
                         )
                     )
                 }
                 
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
                     // Minimize/Maximize toggle icon
                     Icon(
                         imageVector = if (expanded) Icons.Default.CloseFullscreen else Icons.Default.OpenInFull,
                         contentDescription = "Resize Bubble",
                         tint = RangoLimeGreen,
                         modifier = Modifier
-                            .size(14.dp)
+                            .size(10.dp)
                             .clickable { isExpanded.value = !expanded }
                     )
                     
@@ -607,7 +631,7 @@ class OverlayService : Service() {
                             contentDescription = "Stop Service",
                             tint = RangoDangerRed,
                             modifier = Modifier
-                                .size(15.dp)
+                                .size(11.dp)
                                 .clickable {
                                     val stopIntent = Intent(this@OverlayService, OverlayService::class.java).apply {
                                         action = ACTION_STOP_OVERLAY
@@ -623,26 +647,26 @@ class OverlayService : Service() {
                 // COLLAPSED COMPACT VIEW
                 Column(
                     modifier = Modifier.fillMaxWidth().clickable { isExpanded.value = true },
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalArrangement = Arrangement.spacedBy(0.5.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
                         text = "Last: ${historyList.firstOrNull() ?: 1.00}x",
                         color = RangoTextWhite,
-                        fontSize = 12.sp,
+                        fontSize = 8.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace
                     )
                     Text(
                         text = metrics.trend,
                         color = riskColor,
-                        fontSize = 10.sp,
+                        fontSize = 7.5.sp,
                         fontWeight = FontWeight.ExtraBold
                     )
                     Text(
-                        text = "Tap to view",
+                        text = "Tap",
                         color = RangoTextMuted,
-                        fontSize = 8.sp,
+                        fontSize = 6.5.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
@@ -665,24 +689,24 @@ class OverlayService : Service() {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(6.dp))
+                        .clip(RoundedCornerShape(3.dp))
                         .background(Color.Black.copy(alpha = 0.35f))
-                        .padding(vertical = 5.dp, horizontal = 6.dp),
+                        .padding(vertical = 2.dp, horizontal = 3.dp),
                     contentAlignment = Alignment.CenterStart
                 ) {
                     Text(
                         text = headingText,
                         color = headingColor,
-                        fontSize = 10.sp,
+                        fontSize = 7.5.sp,
                         fontWeight = FontWeight.Black
                     )
                 }
 
                 // Grid of 6 Performance and strategy prediction boxes
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(1.5.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(1.5.dp)
                     ) {
                         BoxMetricItem(
                             title = "NEXT",
@@ -709,7 +733,7 @@ class OverlayService : Service() {
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(1.5.dp)
                     ) {
                         BoxMetricItem(
                             title = "BET",
@@ -739,16 +763,16 @@ class OverlayService : Service() {
                 Text(
                     text = metrics.description,
                     color = RangoTextWhite,
-                    fontSize = 8.5.sp,
-                    lineHeight = 11.sp,
+                    fontSize = 7.sp,
+                    lineHeight = 8.5.sp,
                     fontWeight = FontWeight.Medium,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 0.5.dp)
                 )
 
                 HorizontalDivider(color = RangoTealSky.copy(alpha = 0.5f))
 
                 // Wallet Balance & Adjustment Section
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(1.5.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -757,13 +781,13 @@ class OverlayService : Service() {
                         Text(
                             "BALANCE:",
                             color = RangoTextMuted,
-                            fontSize = 9.sp,
+                            fontSize = 7.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
                             "PKR ${String.format("%.2f", doubleBalance)}",
                             color = Color.White,
-                            fontSize = 11.sp,
+                            fontSize = 8.5.sp,
                             fontWeight = FontWeight.Black,
                             fontFamily = FontFamily.Monospace
                         )
@@ -771,27 +795,27 @@ class OverlayService : Service() {
                     
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(1.5.dp)
                     ) {
                         listOf(-50.0, -10.0, 10.0, 50.0).forEach { amount ->
                             val label = if (amount > 0) "+${amount.toInt()}" else "${amount.toInt()}"
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .clip(RoundedCornerShape(4.dp))
+                                    .clip(RoundedCornerShape(2.dp))
                                     .background(RangoHorizon)
                                     .clickable {
                                         val current = walletBalanceInput.value.toDoubleOrNull() ?: 280.89
                                         val adjusted = (current + amount).coerceAtLeast(0.0)
                                         walletBalanceInput.value = String.format("%.2f", adjusted)
                                     }
-                                    .padding(vertical = 4.dp),
+                                    .padding(vertical = 1.8.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     text = label,
                                     color = if (amount > 0) RangoLimeGreen else RangoDangerRed,
-                                    fontSize = 9.sp,
+                                    fontSize = 7.sp,
                                     fontWeight = FontWeight.Black
                                 )
                             }
@@ -803,23 +827,23 @@ class OverlayService : Service() {
 
                 // Risk & Last Multipliers Info Summary
                 val riskName = when (metrics.streak) {
-                    "HOT" -> "HIGH RISK | Bet: Skip/Low"
-                    "COLD" -> "LOW RISK | Bet: PKR ${df.format(baseBet * metrics.betFactor)}"
-                    else -> "MEDIUM RISK | Bet: PKR ${df.format(baseBet * metrics.betFactor)}"
+                    "HOT" -> "HIGH RISK | Skip"
+                    "COLD" -> "LOW RISK | Bet PKR ${df.format(baseBet * metrics.betFactor)}"
+                    else -> "MED RISK | Bet PKR ${df.format(baseBet * metrics.betFactor)}"
                 }
 
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(0.5.dp)) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("RISK:", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                        Text(riskName, color = riskColor, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                        Text("RISK:", color = RangoTextMuted, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                        Text(riskName, color = riskColor, fontSize = 7.sp, fontWeight = FontWeight.Black)
                     }
 
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("LAST:", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        Text("LAST:", color = RangoTextMuted, fontSize = 7.sp, fontWeight = FontWeight.Bold)
                         Text(
-                            text = if (historyList.isEmpty()) "No rounds captured" else historyList.take(5).joinToString("x  ") { df.format(it) } + "x",
+                            text = if (historyList.isEmpty()) "No rounds captured" else historyList.take(4).joinToString("  ") { df.format(it) },
                             color = Color.White,
-                            fontSize = 9.sp,
+                            fontSize = 7.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace
                         )
@@ -827,33 +851,33 @@ class OverlayService : Service() {
                 }
 
                 // LIVE SCANNER tabbed section (Auto OCR and Manual)
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(1.5.dp)) {
                     Text(
                         "⚡ LIVE SCANNER",
                         color = RangoLimeGreen,
-                        fontSize = 9.sp,
+                        fontSize = 7.sp,
                         fontWeight = FontWeight.ExtraBold
                     )
                     
                     // Tabs Row exactly like screenshot mockup
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(1.5.dp)
                     ) {
                         // AUTO OCR TAB
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(6.dp))
+                                .clip(RoundedCornerShape(3.dp))
                                 .background(if (!isManualMode) RangoLimeGreen else RangoTealSky.copy(alpha = 0.2f))
                                 .clickable { isManualModeSelected.value = false }
-                                .padding(vertical = 5.dp),
+                                .padding(vertical = 2.5.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 "⚡ AUTO OCR",
                                 color = if (!isManualMode) Color.Black else RangoTextWhite,
-                                fontSize = 8.sp,
+                                fontSize = 6.5.sp,
                                 fontWeight = FontWeight.Black
                             )
                         }
@@ -862,16 +886,16 @@ class OverlayService : Service() {
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(6.dp))
+                                .clip(RoundedCornerShape(3.dp))
                                 .background(if (isManualMode) RangoLimeGreen else RangoTealSky.copy(alpha = 0.2f))
                                 .clickable { isManualModeSelected.value = true }
-                                .padding(vertical = 5.dp),
+                                .padding(vertical = 2.5.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 "✏️ MANUAL",
                                 color = if (isManualMode) Color.Black else RangoTextWhite,
-                                fontSize = 8.sp,
+                                fontSize = 6.5.sp,
                                 fontWeight = FontWeight.Black
                             )
                         }
@@ -880,9 +904,9 @@ class OverlayService : Service() {
                     if (isManualMode) {
                         // MANUAL INPUT SUBSECTION
                         Text(
-                            "Game ka multiplier enter karo (e.g. 1.85):",
+                            "Enter multiplier:",
                             color = RangoTextMuted,
-                            fontSize = 8.5.sp,
+                            fontSize = 7.sp,
                             fontWeight = FontWeight.Bold
                         )
                         
@@ -891,7 +915,7 @@ class OverlayService : Service() {
                         TextField(
                             value = inputText,
                             onValueChange = { manualMultiplierInput.value = it },
-                            placeholder = { Text("e.g. 1.85", fontSize = 10.sp, color = RangoTextMuted) },
+                            placeholder = { Text("e.g. 1.85", fontSize = 8.sp, color = RangoTextMuted) },
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             colors = TextFieldDefaults.colors(
@@ -903,14 +927,14 @@ class OverlayService : Service() {
                                 unfocusedIndicatorColor = Color.Transparent,
                                 disabledIndicatorColor = Color.Transparent
                             ),
-                            shape = RoundedCornerShape(4.dp),
+                            shape = RoundedCornerShape(2.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(38.dp)
+                                .height(22.dp)
                                 .onFocusChanged { focusState ->
                                     updateWindowFocus(focusState.isFocused)
                                 },
-                            textStyle = LocalTextStyle.current.copy(fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                            textStyle = LocalTextStyle.current.copy(fontSize = 8.sp, fontFamily = FontFamily.Monospace)
                         )
                         
                         Button(
@@ -924,21 +948,21 @@ class OverlayService : Service() {
                                     checkAndCommitDetectedValue(multiplierDouble)
                                     captureLogs.value = "Manual added: ${multiplierDouble}x."
                                 } else {
-                                    captureLogs.value = "Krpya sahi multiplier enter karo (1.0 - 1000)!"
+                                    captureLogs.value = "Error: (1.0 - 1000)!"
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5)),
-                            shape = RoundedCornerShape(6.dp),
-                            contentPadding = PaddingValues(vertical = 4.dp),
-                            modifier = Modifier.fillMaxWidth().height(32.dp)
+                            shape = RoundedCornerShape(3.dp),
+                            contentPadding = PaddingValues(vertical = 1.dp),
+                            modifier = Modifier.fillMaxWidth().height(18.dp)
                         ) {
-                            Text("✔️ SUBMIT & PREDICT", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold)
+                            Text("✔️ SUBMIT & PREDICT", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.ExtraBold)
                         }
                     } else {
                         // AUTO OCR SCAN CONTROL SUBSECTION
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            horizontalArrangement = Arrangement.spacedBy(1.5.dp)
                         ) {
                             Button(
                                 onClick = { 
@@ -956,14 +980,14 @@ class OverlayService : Service() {
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = if (isScanning) RangoDangerRed else RangoLimeGreen
                                 ),
-                                shape = RoundedCornerShape(6.dp),
-                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                                modifier = Modifier.fillMaxWidth().height(32.dp)
+                                shape = RoundedCornerShape(3.dp),
+                                contentPadding = PaddingValues(horizontal = 3.dp, vertical = 0.5.dp),
+                                modifier = Modifier.fillMaxWidth().height(18.dp)
                             ) {
                                 Text(
                                     if (isScanning) "STOP SCAN" else "START AUTO OCR",
                                     color = Color.Black,
-                                    fontSize = 9.sp,
+                                    fontSize = 7.sp,
                                     fontWeight = FontWeight.Black
                                 )
                             }
@@ -973,13 +997,13 @@ class OverlayService : Service() {
                         Text(
                             text = logInfo,
                             color = RangoTextMuted,
-                            fontSize = 8.5.sp,
-                            lineHeight = 10.sp,
+                            fontSize = 6.5.sp,
+                            lineHeight = 8.sp,
                             textAlign = TextAlign.Center,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(Color.Black.copy(alpha = 0.4f))
-                                .padding(4.dp)
+                                .padding(2.2.dp)
                         )
                     }
                 }
@@ -990,45 +1014,45 @@ class OverlayService : Service() {
                 
                 Card(
                     colors = CardDefaults.cardColors(containerColor = RangoHorizon.copy(alpha = 0.5f)),
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(4.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
-                        modifier = Modifier.padding(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                        modifier = Modifier.padding(3.dp),
+                        verticalArrangement = Arrangement.spacedBy(1.5.dp)
                     ) {
                         Text(
                             "🔮 GEMINI AI RESPONSE",
                             color = RangoDesertGold,
-                            fontSize = 8.5.sp,
+                            fontSize = 6.5.sp,
                             fontWeight = FontWeight.Black
                         )
                         
                         if (liveLoading) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.padding(vertical = 4.dp)
+                                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                modifier = Modifier.padding(vertical = 1.dp)
                             ) {
-                                CircularProgressIndicator(color = RangoLimeGreen, modifier = Modifier.size(10.dp), strokeWidth = 1.5.dp)
-                                Text("AI analyzing live history...", color = RangoTextWhite, fontSize = 8.sp)
+                                CircularProgressIndicator(color = RangoLimeGreen, modifier = Modifier.size(6.dp), strokeWidth = 0.8.dp)
+                                Text("Analyzing live...", color = RangoTextWhite, fontSize = 6.sp)
                             }
                         } else if (liveAdvice.isEmpty()) {
                             Text(
                                 "Rounds add karo → auto analysis shuru ho",
                                 color = RangoTextWhite,
-                                fontSize = 8.5.sp,
+                                fontSize = 6.5.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(vertical = 2.dp)
+                                modifier = Modifier.padding(vertical = 0.5.dp)
                             )
                         } else {
                             Text(
                                 text = liveAdvice,
                                 color = RangoTextWhite,
-                                fontSize = 8.sp,
-                                lineHeight = 10.sp,
+                                fontSize = 6.5.sp,
+                                lineHeight = 8.sp,
                                 fontFamily = FontFamily.Monospace,
-                                modifier = Modifier.padding(top = 2.dp)
+                                modifier = Modifier.padding(top = 1.dp)
                             )
                         }
                     }
@@ -1067,6 +1091,10 @@ class OverlayService : Service() {
                 }
             }
         }
+    }
+
+    fun startOcrFromActivity(resultCode: Int, data: Intent) {
+        startMediaProjection(resultCode, data)
     }
 
     private fun startMediaProjection(resultCode: Int, data: Intent) {
