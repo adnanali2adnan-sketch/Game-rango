@@ -40,9 +40,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
@@ -111,12 +121,14 @@ class OverlayService : Service() {
     private var captureLogs = MutableStateFlow("OCR Scanner offline. Press START.")
     private var isOcrScanning = MutableStateFlow(false)
     private var isManualModeSelected = MutableStateFlow(true)
+    private var isBottomSectionExpanded = MutableStateFlow(false)
     private var manualMultiplierInput = MutableStateFlow("")
 
     // Dynamic Live Gemini HUD advice
     private var geminiAiAdvice = MutableStateFlow("")
     private var isGeminiLoading = MutableStateFlow(false)
     private var geminiApiKey = MutableStateFlow("")
+    private var onBackPressCallback: (() -> Unit)? = null
 
     // Media Projection & OCR components
     private var mediaProjection: MediaProjection? = null
@@ -126,6 +138,7 @@ class OverlayService : Service() {
     private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
     private var lastRecordedValue = 0.0
+    private var lastGeminiCallTime = 0L
     private var isServiceDestroying = false
 
     override fun onCreate() {
@@ -326,6 +339,16 @@ class OverlayService : Service() {
                 }
                 return super.onTouchEvent(event)
             }
+
+            override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+                if (event.keyCode == android.view.KeyEvent.KEYCODE_BACK) {
+                    if (event.action == android.view.KeyEvent.ACTION_UP) {
+                        onBackPressCallback?.invoke()
+                    }
+                    return true
+                }
+                return super.dispatchKeyEvent(event)
+            }
         }.apply {
             setViewTreeLifecycleOwner(localLifecycleOwner)
             setViewTreeSavedStateRegistryOwner(localLifecycleOwner)
@@ -388,18 +411,25 @@ class OverlayService : Service() {
         }
     }
 
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
     private fun updateWindowFocus(focusable: Boolean) {
-        val root = overlayView ?: return
-        val lp = root.layoutParams as WindowManager.LayoutParams
-        if (focusable) {
-            lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
-        } else {
-            lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-        }
-        try {
-            windowManager.updateViewLayout(root, lp)
-        } catch (e: Exception) {
-            e.printStackTrace()
+        mainHandler.post {
+            val root = overlayView ?: return@post
+            val lp = root.layoutParams as? WindowManager.LayoutParams ?: return@post
+            val oldFlags = lp.flags
+            if (focusable) {
+                lp.flags = (lp.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()) or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+            } else {
+                lp.flags = (lp.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) and WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL.inv()
+            }
+            if (oldFlags != lp.flags) {
+                try {
+                    windowManager.updateViewLayout(root, lp)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
     }
 
@@ -525,23 +555,23 @@ class OverlayService : Service() {
     ) {
         Box(
             modifier = modifier
-                .clip(RoundedCornerShape(2.dp))
+                .clip(RoundedCornerShape(3.dp))
                 .background(bgColor)
-                .padding(vertical = 0.5.dp, horizontal = 1.dp),
+                .padding(vertical = 1.dp, horizontal = 1.5.dp),
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = title,
                     color = RangoTextWhite.copy(alpha = 0.85f),
-                    fontSize = 4.5.sp,
+                    fontSize = 5.5.sp,
                     fontWeight = FontWeight.Bold
                 )
-                Spacer(modifier = Modifier.height(0.3.dp))
+                Spacer(modifier = Modifier.height(0.5.dp))
                 Text(
                     text = value,
                     color = valueColor,
-                    fontSize = 7.5.sp,
+                    fontSize = 8.5.sp,
                     fontWeight = FontWeight.Black,
                     fontFamily = FontFamily.Monospace,
                     maxLines = 1
@@ -563,6 +593,17 @@ class OverlayService : Service() {
         val logInfo by captureLogs.collectAsState()
         val isScanning by isOcrScanning.collectAsState()
         val isManualMode by isManualModeSelected.collectAsState()
+        val bottomExpanded by isBottomSectionExpanded.collectAsState()
+        
+        val focusRequester = remember { FocusRequester() }
+        val focusManager = LocalFocusManager.current
+
+        LaunchedEffect(focusManager) {
+            onBackPressCallback = {
+                focusManager.clearFocus()
+                updateWindowFocus(false)
+            }
+        }
 
         // Local Calculations
         val doubleBalance = balance.toDoubleOrNull() ?: 280.89
@@ -579,9 +620,16 @@ class OverlayService : Service() {
 
         Column(
             modifier = Modifier
-                .width(if (expanded) 124.dp else 46.dp)
+                .width(if (expanded) 146.dp else 52.dp)
                 .clip(RoundedCornerShape(6.dp))
                 .background(RangoHorizon.copy(alpha = 0.96f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    focusManager.clearFocus()
+                    updateWindowFocus(false)
+                }
                 .padding(3.dp),
             verticalArrangement = Arrangement.spacedBy(1.5.dp)
         ) {
@@ -594,9 +642,13 @@ class OverlayService : Service() {
                 Row(
                     modifier = Modifier
                         .weight(1f)
-                        .clickable { isExpanded.value = !expanded },
+                        .clickable { 
+                            focusManager.clearFocus()
+                            updateWindowFocus(false)
+                            isExpanded.value = !expanded 
+                        },
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(1.5.dp)
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     Box(
                         modifier = Modifier
@@ -608,20 +660,24 @@ class OverlayService : Service() {
                         style = MaterialTheme.typography.labelSmall.copy(
                             color = RangoTextWhite,
                             fontWeight = FontWeight.ExtraBold,
-                            fontSize = 7.5.sp
+                            fontSize = 8.5.sp
                         )
                     )
                 }
                 
-                Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                     // Minimize/Maximize toggle icon
                     Icon(
                         imageVector = if (expanded) Icons.Default.CloseFullscreen else Icons.Default.OpenInFull,
                         contentDescription = "Resize Bubble",
                         tint = RangoLimeGreen,
                         modifier = Modifier
-                            .size(10.dp)
-                            .clickable { isExpanded.value = !expanded }
+                            .size(12.dp)
+                            .clickable { 
+                                focusManager.clearFocus()
+                                updateWindowFocus(false)
+                                isExpanded.value = !expanded 
+                            }
                     )
                     
                     if (expanded) {
@@ -631,7 +687,7 @@ class OverlayService : Service() {
                             contentDescription = "Stop Service",
                             tint = RangoDangerRed,
                             modifier = Modifier
-                                .size(11.dp)
+                                .size(13.dp)
                                 .clickable {
                                     val stopIntent = Intent(this@OverlayService, OverlayService::class.java).apply {
                                         action = ACTION_STOP_OVERLAY
@@ -653,20 +709,20 @@ class OverlayService : Service() {
                     Text(
                         text = "Last: ${historyList.firstOrNull() ?: 1.00}x",
                         color = RangoTextWhite,
-                        fontSize = 8.sp,
+                        fontSize = 9.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace
                     )
                     Text(
                         text = metrics.trend,
                         color = riskColor,
-                        fontSize = 7.5.sp,
+                        fontSize = 8.5.sp,
                         fontWeight = FontWeight.ExtraBold
                     )
                     Text(
                         text = "Tap",
                         color = RangoTextMuted,
-                        fontSize = 6.5.sp,
+                        fontSize = 7.5.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
@@ -691,13 +747,13 @@ class OverlayService : Service() {
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(3.dp))
                         .background(Color.Black.copy(alpha = 0.35f))
-                        .padding(vertical = 2.dp, horizontal = 3.dp),
+                        .padding(vertical = 2.dp, horizontal = 4.dp),
                     contentAlignment = Alignment.CenterStart
                 ) {
                     Text(
                         text = headingText,
                         color = headingColor,
-                        fontSize = 7.5.sp,
+                        fontSize = 8.5.sp,
                         fontWeight = FontWeight.Black
                     )
                 }
@@ -763,8 +819,8 @@ class OverlayService : Service() {
                 Text(
                     text = metrics.description,
                     color = RangoTextWhite,
-                    fontSize = 7.sp,
-                    lineHeight = 8.5.sp,
+                    fontSize = 7.5.sp,
+                    lineHeight = 9.5.sp,
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 0.5.dp)
                 )
@@ -772,7 +828,7 @@ class OverlayService : Service() {
                 HorizontalDivider(color = RangoTealSky.copy(alpha = 0.5f))
 
                 // Wallet Balance & Adjustment Section
-                Column(verticalArrangement = Arrangement.spacedBy(1.5.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -781,13 +837,13 @@ class OverlayService : Service() {
                         Text(
                             "BALANCE:",
                             color = RangoTextMuted,
-                            fontSize = 7.sp,
+                            fontSize = 7.5.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
                             "PKR ${String.format("%.2f", doubleBalance)}",
                             color = Color.White,
-                            fontSize = 8.5.sp,
+                            fontSize = 9.5.sp,
                             fontWeight = FontWeight.Black,
                             fontFamily = FontFamily.Monospace
                         )
@@ -802,21 +858,21 @@ class OverlayService : Service() {
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .clip(RoundedCornerShape(2.dp))
+                                    .clip(RoundedCornerShape(3.dp))
                                     .background(RangoHorizon)
                                     .clickable {
                                         val current = walletBalanceInput.value.toDoubleOrNull() ?: 280.89
                                         val adjusted = (current + amount).coerceAtLeast(0.0)
                                         walletBalanceInput.value = String.format("%.2f", adjusted)
                                     }
-                                    .padding(vertical = 1.8.dp),
+                                    .padding(vertical = 1.5.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     text = label,
                                     color = if (amount > 0) RangoLimeGreen else RangoDangerRed,
-                                    fontSize = 7.sp,
-                                    fontWeight = FontWeight.Black
+                                    fontSize = 7.5.sp,
+                                    fontWeight = FontWeight.ExtraBold
                                 )
                             }
                         }
@@ -834,18 +890,20 @@ class OverlayService : Service() {
 
                 Column(verticalArrangement = Arrangement.spacedBy(0.5.dp)) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("RISK:", color = RangoTextMuted, fontSize = 7.sp, fontWeight = FontWeight.Bold)
-                        Text(riskName, color = riskColor, fontSize = 7.sp, fontWeight = FontWeight.Black)
+                        Text("RISK:", color = RangoTextMuted, fontSize = 7.5.sp, fontWeight = FontWeight.Bold)
+                        Text(riskName, color = riskColor, fontSize = 7.5.sp, fontWeight = FontWeight.Black)
                     }
 
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("LAST:", color = RangoTextMuted, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                        Text("LAST:", color = RangoTextMuted, fontSize = 7.5.sp, fontWeight = FontWeight.Bold)
                         Text(
                             text = if (historyList.isEmpty()) "No rounds captured" else historyList.take(4).joinToString("  ") { df.format(it) },
                             color = Color.White,
-                            fontSize = 7.sp,
+                            fontSize = 7.5.sp,
                             fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -855,14 +913,14 @@ class OverlayService : Service() {
                     Text(
                         "⚡ LIVE SCANNER",
                         color = RangoLimeGreen,
-                        fontSize = 7.sp,
+                        fontSize = 7.5.sp,
                         fontWeight = FontWeight.ExtraBold
                     )
                     
                     // Tabs Row exactly like screenshot mockup
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(1.5.dp)
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         // AUTO OCR TAB
                         Box(
@@ -870,16 +928,20 @@ class OverlayService : Service() {
                                 .weight(1f)
                                 .clip(RoundedCornerShape(3.dp))
                                 .background(if (!isManualMode) RangoLimeGreen else RangoTealSky.copy(alpha = 0.2f))
-                                .clickable { isManualModeSelected.value = false }
+                                .clickable { 
+                                    focusManager.clearFocus()
+                                    updateWindowFocus(false)
+                                    isManualModeSelected.value = false 
+                                }
                                 .padding(vertical = 2.5.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 "⚡ AUTO OCR",
                                 color = if (!isManualMode) Color.Black else RangoTextWhite,
-                                fontSize = 6.5.sp,
+                                fontSize = 7.sp,
                                 fontWeight = FontWeight.Black
-                            )
+                              )
                         }
 
                         // MANUAL TAB
@@ -888,14 +950,18 @@ class OverlayService : Service() {
                                 .weight(1f)
                                 .clip(RoundedCornerShape(3.dp))
                                 .background(if (isManualMode) RangoLimeGreen else RangoTealSky.copy(alpha = 0.2f))
-                                .clickable { isManualModeSelected.value = true }
+                                .clickable { 
+                                    focusManager.clearFocus()
+                                    updateWindowFocus(false)
+                                    isManualModeSelected.value = true 
+                                }
                                 .padding(vertical = 2.5.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 "✏️ MANUAL",
                                 color = if (isManualMode) Color.Black else RangoTextWhite,
-                                fontSize = 6.5.sp,
+                                fontSize = 7.sp,
                                 fontWeight = FontWeight.Black
                             )
                         }
@@ -906,36 +972,83 @@ class OverlayService : Service() {
                         Text(
                             "Enter multiplier:",
                             color = RangoTextMuted,
-                            fontSize = 7.sp,
+                            fontSize = 7.5.sp,
                             fontWeight = FontWeight.Bold
                         )
                         
                         val inputText by manualMultiplierInput.collectAsState()
                         
-                        TextField(
-                            value = inputText,
-                            onValueChange = { manualMultiplierInput.value = it },
-                            placeholder = { Text("e.g. 1.85", fontSize = 8.sp, color = RangoTextMuted) },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            colors = TextFieldDefaults.colors(
-                                focusedTextColor = RangoTextWhite,
-                                unfocusedTextColor = RangoTextWhite,
-                                focusedContainerColor = Color.Black.copy(alpha = 0.4f),
-                                unfocusedContainerColor = Color.Black.copy(alpha = 0.4f),
-                                focusedIndicatorColor = RangoLimeGreen,
-                                unfocusedIndicatorColor = Color.Transparent,
-                                disabledIndicatorColor = Color.Transparent
-                            ),
-                            shape = RoundedCornerShape(2.dp),
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(22.dp)
-                                .onFocusChanged { focusState ->
-                                    updateWindowFocus(focusState.isFocused)
-                                },
-                            textStyle = LocalTextStyle.current.copy(fontSize = 8.sp, fontFamily = FontFamily.Monospace)
-                        )
+                                .height(24.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(Color.Black.copy(alpha = 0.4f)),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            BasicTextField(
+                                value = inputText,
+                                onValueChange = { manualMultiplierInput.value = it },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                textStyle = LocalTextStyle.current.copy(
+                                    color = RangoTextWhite,
+                                    fontSize = 9.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    textAlign = TextAlign.Center
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(focusRequester)
+                                    .onFocusChanged { focusState ->
+                                        updateWindowFocus(focusState.isFocused)
+                                    }
+                                    .onKeyEvent { keyEvent ->
+                                        if (keyEvent.key == Key.Back && keyEvent.type == KeyEventType.KeyUp) {
+                                            focusManager.clearFocus()
+                                            updateWindowFocus(false)
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    },
+                                decorationBox = { innerTextField ->
+                                    Box(
+                                        modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (inputText.isEmpty()) {
+                                            Text(
+                                                "e.g. 1.85",
+                                                color = RangoTextMuted,
+                                                fontSize = 9.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                textAlign = TextAlign.Center
+                                            )
+                                        }
+                                        innerTextField()
+                                    }
+                                }
+                            )
+
+                            // Overlay transparent click target covering the entire input field area to handle resetting and posting focus cleanly on every click!
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        focusManager.clearFocus()
+                                        mainHandler.post {
+                                            updateWindowFocus(true)
+                                            mainHandler.post {
+                                                focusRequester.requestFocus()
+                                            }
+                                        }
+                                    }
+                            )
+                        }
                         
                         Button(
                             onClick = {
@@ -943,9 +1056,10 @@ class OverlayService : Service() {
                                 if (multiplierDouble != null && multiplierDouble >= 1.0 && multiplierDouble <= 1000.0) {
                                     manualMultiplierInput.value = ""
                                     // Clear input focus to dismiss keyboard
+                                    focusManager.clearFocus()
                                     updateWindowFocus(false)
-                                    // Add value as detected!
-                                    checkAndCommitDetectedValue(multiplierDouble)
+                                    // Add value and FORCE Gemini prediction (bypassing rate limit)
+                                    checkAndCommitDetectedValue(multiplierDouble, forceGemini = true)
                                     captureLogs.value = "Manual added: ${multiplierDouble}x."
                                 } else {
                                     captureLogs.value = "Error: (1.0 - 1000)!"
@@ -954,15 +1068,15 @@ class OverlayService : Service() {
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5)),
                             shape = RoundedCornerShape(3.dp),
                             contentPadding = PaddingValues(vertical = 1.dp),
-                            modifier = Modifier.fillMaxWidth().height(18.dp)
+                            modifier = Modifier.fillMaxWidth().height(20.dp)
                         ) {
-                            Text("✔️ SUBMIT & PREDICT", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.ExtraBold)
+                            Text("✔️ SUBMIT & PREDICT", color = Color.White, fontSize = 7.5.sp, fontWeight = FontWeight.ExtraBold)
                         }
                     } else {
                         // AUTO OCR SCAN CONTROL SUBSECTION
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(1.5.dp)
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
                             Button(
                                 onClick = { 
@@ -981,13 +1095,13 @@ class OverlayService : Service() {
                                     containerColor = if (isScanning) RangoDangerRed else RangoLimeGreen
                                 ),
                                 shape = RoundedCornerShape(3.dp),
-                                contentPadding = PaddingValues(horizontal = 3.dp, vertical = 0.5.dp),
-                                modifier = Modifier.fillMaxWidth().height(18.dp)
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 1.dp),
+                                modifier = Modifier.fillMaxWidth().height(20.dp)
                             ) {
                                 Text(
                                     if (isScanning) "STOP SCAN" else "START AUTO OCR",
                                     color = Color.Black,
-                                    fontSize = 7.sp,
+                                    fontSize = 7.5.sp,
                                     fontWeight = FontWeight.Black
                                 )
                             }
@@ -997,94 +1111,146 @@ class OverlayService : Service() {
                         Text(
                             text = logInfo,
                             color = RangoTextMuted,
-                            fontSize = 6.5.sp,
-                            lineHeight = 8.sp,
+                            fontSize = 7.sp,
+                            lineHeight = 8.5.sp,
                             textAlign = TextAlign.Center,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(Color.Black.copy(alpha = 0.4f))
-                                .padding(2.2.dp)
+                                .padding(2.dp)
                         )
                     }
                 }
 
-                // Dynamic Gemini Cockpit Live Performance Panel
-                val liveAdvice by geminiAiAdvice.collectAsState()
-                val liveLoading by isGeminiLoading.collectAsState()
-                
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = RangoHorizon.copy(alpha = 0.5f)),
-                    shape = RoundedCornerShape(4.dp),
-                    modifier = Modifier.fillMaxWidth()
+                HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f))
+
+                // Toggle Button for bottom AI & Lobby Ribbon - keeps the window height extremely small!
+                Button(
+                    onClick = { 
+                        focusManager.clearFocus()
+                        updateWindowFocus(false)
+                        isBottomSectionExpanded.value = !bottomExpanded 
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (bottomExpanded) RangoTealSky.copy(alpha = 0.3f) else RangoDesertGold
+                    ),
+                    shape = RoundedCornerShape(3.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 1.dp),
+                    modifier = Modifier.fillMaxWidth().height(22.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(3.dp),
-                        verticalArrangement = Arrangement.spacedBy(1.5.dp)
-                    ) {
-                        Text(
-                            "🔮 GEMINI AI RESPONSE",
-                            color = RangoDesertGold,
-                            fontSize = 6.5.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                        
-                        if (liveLoading) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(3.dp),
-                                modifier = Modifier.padding(vertical = 1.dp)
-                            ) {
-                                CircularProgressIndicator(color = RangoLimeGreen, modifier = Modifier.size(6.dp), strokeWidth = 0.8.dp)
-                                Text("Analyzing live...", color = RangoTextWhite, fontSize = 6.sp)
-                            }
-                        } else if (liveAdvice.isEmpty()) {
-                            Text(
-                                "Rounds add karo → auto analysis shuru ho",
-                                color = RangoTextWhite,
-                                fontSize = 6.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(vertical = 0.5.dp)
-                            )
-                        } else {
-                            Text(
-                                text = liveAdvice,
-                                color = RangoTextWhite,
-                                fontSize = 6.5.sp,
-                                lineHeight = 8.sp,
-                                fontFamily = FontFamily.Monospace,
-                                modifier = Modifier.padding(top = 1.dp)
-                            )
-                        }
-                    }
-                }
-
-                // Ribbon of recent rounds in overlay
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("LOBBY RIBBON", color = RangoTextMuted, fontSize = 8.sp, fontWeight = FontWeight.Bold)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        historyList.take(5).forEach { mult ->
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(3.dp))
-                                    .background(
-                                        when {
-                                            mult >= 3.0 -> Color(0xFF8C34FF)
-                                            mult >= 1.5 -> RangoLimeGreen
-                                            else -> RangoTealSky
-                                        }
-                                    )
-                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                        Text(
+                            text = if (bottomExpanded) "🔮 HIDE AI & LOBBY 🔼" else "🔮 SHOW AI & LOBBY 🔽",
+                            color = if (bottomExpanded) RangoTextWhite else Color.Black,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+                }
+
+                if (bottomExpanded) {
+                    // Dynamic Gemini Cockpit Live Performance Panel
+                    val liveAdvice by geminiAiAdvice.collectAsState()
+                    val liveLoading by isGeminiLoading.collectAsState()
+                    
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = RangoHorizon.copy(alpha = 0.5f)),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(4.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    "${mult}x",
-                                    color = Color.White,
-                                    fontSize = 7.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace
+                                    "🔮 GEMINI AI RESPONSE",
+                                    color = RangoDesertGold,
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Black
                                 )
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Manual Refresh Gemini Strategy Advice",
+                                    tint = RangoLimeGreen,
+                                    modifier = Modifier
+                                        .size(11.dp)
+                                        .clickable { triggerRealtimeGeminiPipeline(force = true) }
+                                )
+                            }
+                            
+                            if (liveLoading) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    modifier = Modifier.padding(vertical = 1.5.dp)
+                                ) {
+                                    CircularProgressIndicator(color = RangoLimeGreen, modifier = Modifier.size(8.dp), strokeWidth = 1.dp)
+                                    Text("Analyzing live...", color = RangoTextWhite, fontSize = 7.5.sp)
+                                }
+                            } else if (liveAdvice.isEmpty()) {
+                                Text(
+                                    "Rounds add karo → auto analysis shuru ho",
+                                    color = RangoTextWhite,
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(vertical = 1.dp)
+                                )
+                            } else {
+                                Text(
+                                    text = liveAdvice,
+                                    color = RangoTextWhite,
+                                    fontSize = 8.sp,
+                                    lineHeight = 10.5.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    modifier = Modifier.padding(top = 1.5.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Ribbon of recent rounds in overlay
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("LOBBY RIBBON", color = RangoTextMuted, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            historyList.take(4).forEach { mult ->
+                                Box(
+                                    modifier = Modifier
+                                        .width(31.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(
+                                            when {
+                                                mult >= 3.0 -> Color(0xFF8C34FF)
+                                                mult >= 1.5 -> RangoLimeGreen
+                                                else -> RangoTealSky
+                                            }
+                                        )
+                                        .padding(vertical = 1.5.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "${mult}x",
+                                        color = Color.White,
+                                        fontSize = 7.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
                             }
                         }
                     }
@@ -1198,30 +1364,29 @@ class OverlayService : Service() {
                                             .addOnSuccessListener { visionText ->
                                                 val text = visionText.text
                                                 val textLower = text.lowercase()
-                                                val isCrashEnded = textLower.contains("flew") || textLower.contains("away")
+                                                val isCrashEnded = textLower.contains("flew") || 
+                                                        textLower.contains("away") || 
+                                                        textLower.contains("burst") || 
+                                                        textLower.contains("crash") || 
+                                                        textLower.contains("crashed")
                                                 
                                                 // Parse decimal multipliers like 1.07x, 2.14, 4.34x
                                                 val regex = Regex("""\b(\d+[\.,]\d{1,2})\s*x?\b""", RegexOption.IGNORE_CASE)
                                                 val matches = regex.findAll(text).toList()
                                                 
                                                 if (matches.isNotEmpty()) {
-                                                    var matchedVal: Double? = null
-                                                    
-                                                    if (isCrashEnded) {
-                                                        // When crashed, look for any multiplier in the text showing the crash value
-                                                        val matchedStr = matches.first().groupValues[1].replace(',', '.')
-                                                        matchedVal = matchedStr.toDoubleOrNull()
-                                                    } else {
-                                                        // Otherwise, take the first multiplier matching (usually leftmost lobby ribbon multiplier)
-                                                        val matchedStr = matches.first().groupValues[1].replace(',', '.')
-                                                        matchedVal = matchedStr.toDoubleOrNull()
-                                                    }
+                                                    val matchedStr = matches.first().groupValues[1].replace(',', '.')
+                                                    val matchedVal = matchedStr.toDoubleOrNull()
                                                     
                                                     if (matchedVal != null && matchedVal >= 1.0 && matchedVal < 1000.0) {
                                                         serviceScope.launch(Dispatchers.Main) {
                                                             latestScannedMultiplier.value = String.format("%.2f", matchedVal)
-                                                            captureLogs.value = "OCR match: ${matchedVal}x" + if (isCrashEnded) " (FLEW AWAY)" else ""
-                                                            checkAndCommitDetectedValue(matchedVal)
+                                                            if (isCrashEnded) {
+                                                                captureLogs.value = "CRASH DETECTED: ${matchedVal}x"
+                                                                checkAndCommitDetectedValue(matchedVal)
+                                                            } else {
+                                                                captureLogs.value = "Reading live... Current: ${matchedVal}x"
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -1264,7 +1429,7 @@ class OverlayService : Service() {
         }
     }
 
-    private fun checkAndCommitDetectedValue(value: Double) {
+    private fun checkAndCommitDetectedValue(value: Double, forceGemini: Boolean = false) {
         if (value != lastRecordedValue) {
             lastRecordedValue = value
             serviceScope.launch {
@@ -1275,12 +1440,24 @@ class OverlayService : Service() {
                 addCapturedMultiplierToDatabase(value, baseBet, target)
 
                 // Instantly trigger dynamic real-time Gemini pipeline!
-                triggerRealtimeGeminiPipeline()
+                triggerRealtimeGeminiPipeline(force = forceGemini)
             }
         }
     }
 
-    private fun triggerRealtimeGeminiPipeline() {
+    private fun triggerRealtimeGeminiPipeline(force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        val elapsed = now - lastGeminiCallTime
+        val cooldownMs = 20_000L // 20s safety cooldown to prevent 429
+        if (!force && elapsed < cooldownMs) {
+            val remainingSecs = ((cooldownMs - elapsed) / 1000) + 1
+            if (geminiAiAdvice.value.isEmpty() || geminiAiAdvice.value.contains("Analyzing") || geminiAiAdvice.value.contains("Cooldown") || geminiAiAdvice.value.contains("Wait")) {
+                geminiAiAdvice.value = "Rate Limit Protection:\nWait ${remainingSecs}s or tap 🔄 Refresh to run manually."
+            }
+            return
+        }
+
+        lastGeminiCallTime = now
         serviceScope.launch {
             val key = geminiApiKey.value
             if (key.isBlank()) {
