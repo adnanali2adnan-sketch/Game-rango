@@ -1,4 +1,4 @@
-name: Extract APK
+name: Compile and Extract APK
 
 on:
   push:
@@ -6,20 +6,39 @@ on:
   workflow_dispatch:
 
 jobs:
-  extract:
+  build:
+    name: Build Android App & Upload APK
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      - name: Find and copy APK
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Grant Execute Permission to gradlew
+        run: chmod +x gradlew
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Find and Copy APK
         run: |
-          find . -name "*.apk" | head -10
           mkdir -p output
-          find . -name "*.apk" -exec cp {} output/ \;
-          ls output/
+          find app/build/outputs/apk/debug/ -name "*.apk" -exec cp {} output/ \;
+          echo "Listing copied APK files:"
+          ls -la output/
 
-      - name: Upload APK
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Game-rango-APK
           path: output/*.apk
+          if-no-files-found: error
