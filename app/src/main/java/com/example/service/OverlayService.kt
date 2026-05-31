@@ -46,6 +46,8 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventType
+import android.content.res.Configuration
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.Key
@@ -141,6 +143,44 @@ class OverlayService : Service() {
     private var lastGeminiCallTime = 0L
     private var isServiceDestroying = false
 
+    // Orientation dynamic viewport sizing
+    private var currentWidth = 480
+    private var currentHeight = 800
+
+    private fun setupVirtualDisplay() {
+        val mp = mediaProjection ?: return
+        
+        virtualDisplay?.release()
+        virtualDisplay = null
+        imageReader?.close()
+        imageReader = null
+        
+        val orientation = resources.configuration.orientation
+        if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            currentWidth = 800
+            currentHeight = 480
+        } else {
+            currentWidth = 480
+            currentHeight = 800
+        }
+        
+        val density = 1
+        imageReader = ImageReader.newInstance(currentWidth, currentHeight, PixelFormat.RGBA_8888, 2)
+        virtualDisplay = mp.createVirtualDisplay(
+            "RangoOcrMirror",
+            currentWidth, currentHeight, density,
+            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+            imageReader?.surface, null, null
+        )
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (isOcrScanning.value && mediaProjection != null) {
+            setupVirtualDisplay()
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         activeInstance = this
@@ -158,6 +198,13 @@ class OverlayService : Service() {
                     lastRecordedValue = list.first().multiplier
                     latestScannedMultiplier.value = String.format("%.2f", lastRecordedValue)
                 }
+            }
+        }
+
+        // Keep window focus state synced with manual/auto mode switches
+        serviceScope.launch {
+            isManualModeSelected.collect { isManual ->
+                updateWindowFocus(isManual)
             }
         }
 
@@ -291,6 +338,11 @@ class OverlayService : Service() {
             private val touchSlop = 15 // px
 
             override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+                if (ev.action == MotionEvent.ACTION_DOWN) {
+                    if (isManualModeSelected.value) {
+                        updateWindowFocus(true)
+                    }
+                }
                 when (ev.action) {
                     MotionEvent.ACTION_DOWN -> {
                         val lp = layoutParams as? WindowManager.LayoutParams
@@ -557,21 +609,21 @@ class OverlayService : Service() {
             modifier = modifier
                 .clip(RoundedCornerShape(3.dp))
                 .background(bgColor)
-                .padding(vertical = 1.dp, horizontal = 1.5.dp),
+                .padding(vertical = 0.5.dp, horizontal = 1.dp),
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = title,
                     color = RangoTextWhite.copy(alpha = 0.85f),
-                    fontSize = 5.5.sp,
+                    fontSize = 5.sp,
                     fontWeight = FontWeight.Bold
                 )
-                Spacer(modifier = Modifier.height(0.5.dp))
+                Spacer(modifier = Modifier.height(0.25.dp))
                 Text(
                     text = value,
                     color = valueColor,
-                    fontSize = 8.5.sp,
+                    fontSize = 8.sp,
                     fontWeight = FontWeight.Black,
                     fontFamily = FontFamily.Monospace,
                     maxLines = 1
@@ -620,7 +672,7 @@ class OverlayService : Service() {
 
         Column(
             modifier = Modifier
-                .width(if (expanded) 146.dp else 52.dp)
+                .width(if (expanded) 124.dp else 46.dp)
                 .clip(RoundedCornerShape(6.dp))
                 .background(RangoHorizon.copy(alpha = 0.96f))
                 .clickable(
@@ -630,8 +682,8 @@ class OverlayService : Service() {
                     focusManager.clearFocus()
                     updateWindowFocus(false)
                 }
-                .padding(3.dp),
-            verticalArrangement = Arrangement.spacedBy(1.5.dp)
+                .padding(2.5.dp),
+            verticalArrangement = Arrangement.spacedBy(1.dp)
         ) {
             // Header Row
             Row(
@@ -652,7 +704,7 @@ class OverlayService : Service() {
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(6.dp)
+                            .size(5.dp)
                             .background(riskColor, CircleShape)
                     )
                     Text(
@@ -660,7 +712,7 @@ class OverlayService : Service() {
                         style = MaterialTheme.typography.labelSmall.copy(
                             color = RangoTextWhite,
                             fontWeight = FontWeight.ExtraBold,
-                            fontSize = 8.5.sp
+                            fontSize = 7.5.sp
                         )
                     )
                 }
@@ -759,10 +811,10 @@ class OverlayService : Service() {
                 }
 
                 // Grid of 6 Performance and strategy prediction boxes
-                Column(verticalArrangement = Arrangement.spacedBy(1.5.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(1.5.dp)
+                        horizontalArrangement = Arrangement.spacedBy(1.dp)
                     ) {
                         BoxMetricItem(
                             title = "NEXT",
@@ -789,7 +841,7 @@ class OverlayService : Service() {
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(1.5.dp)
+                        horizontalArrangement = Arrangement.spacedBy(1.dp)
                     ) {
                         BoxMetricItem(
                             title = "BET",
@@ -819,10 +871,10 @@ class OverlayService : Service() {
                 Text(
                     text = metrics.description,
                     color = RangoTextWhite,
-                    fontSize = 7.5.sp,
-                    lineHeight = 9.5.sp,
+                    fontSize = 7.sp,
+                    lineHeight = 8.5.sp,
                     fontWeight = FontWeight.Medium,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 0.5.dp)
+                    modifier = Modifier.fillMaxWidth()
                 )
 
                 HorizontalDivider(color = RangoTealSky.copy(alpha = 0.5f))
@@ -837,13 +889,13 @@ class OverlayService : Service() {
                         Text(
                             "BALANCE:",
                             color = RangoTextMuted,
-                            fontSize = 7.5.sp,
+                            fontSize = 7.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
                             "PKR ${String.format("%.2f", doubleBalance)}",
                             color = Color.White,
-                            fontSize = 9.5.sp,
+                            fontSize = 8.5.sp,
                             fontWeight = FontWeight.Black,
                             fontFamily = FontFamily.Monospace
                         )
@@ -851,7 +903,7 @@ class OverlayService : Service() {
                     
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(1.5.dp)
+                        horizontalArrangement = Arrangement.spacedBy(1.dp)
                     ) {
                         listOf(-50.0, -10.0, 10.0, 50.0).forEach { amount ->
                             val label = if (amount > 0) "+${amount.toInt()}" else "${amount.toInt()}"
@@ -865,13 +917,13 @@ class OverlayService : Service() {
                                         val adjusted = (current + amount).coerceAtLeast(0.0)
                                         walletBalanceInput.value = String.format("%.2f", adjusted)
                                     }
-                                    .padding(vertical = 1.5.dp),
+                                    .padding(vertical = 1.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     text = label,
                                     color = if (amount > 0) RangoLimeGreen else RangoDangerRed,
-                                    fontSize = 7.5.sp,
+                                    fontSize = 6.5.sp,
                                     fontWeight = FontWeight.ExtraBold
                                 )
                             }
@@ -890,16 +942,16 @@ class OverlayService : Service() {
 
                 Column(verticalArrangement = Arrangement.spacedBy(0.5.dp)) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("RISK:", color = RangoTextMuted, fontSize = 7.5.sp, fontWeight = FontWeight.Bold)
-                        Text(riskName, color = riskColor, fontSize = 7.5.sp, fontWeight = FontWeight.Black)
+                        Text("RISK:", color = RangoTextMuted, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                        Text(riskName, color = riskColor, fontSize = 7.sp, fontWeight = FontWeight.Black)
                     }
 
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("LAST:", color = RangoTextMuted, fontSize = 7.5.sp, fontWeight = FontWeight.Bold)
+                        Text("LAST:", color = RangoTextMuted, fontSize = 7.sp, fontWeight = FontWeight.Bold)
                         Text(
                             text = if (historyList.isEmpty()) "No rounds captured" else historyList.take(4).joinToString("  ") { df.format(it) },
                             color = Color.White,
-                            fontSize = 7.5.sp,
+                            fontSize = 7.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace,
                             maxLines = 1,
@@ -909,18 +961,18 @@ class OverlayService : Service() {
                 }
 
                 // LIVE SCANNER tabbed section (Auto OCR and Manual)
-                Column(verticalArrangement = Arrangement.spacedBy(1.5.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                     Text(
                         "⚡ LIVE SCANNER",
                         color = RangoLimeGreen,
-                        fontSize = 7.5.sp,
+                        fontSize = 7.sp,
                         fontWeight = FontWeight.ExtraBold
                     )
                     
                     // Tabs Row exactly like screenshot mockup
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        horizontalArrangement = Arrangement.spacedBy(1.dp)
                     ) {
                         // AUTO OCR TAB
                         Box(
@@ -930,16 +982,15 @@ class OverlayService : Service() {
                                 .background(if (!isManualMode) RangoLimeGreen else RangoTealSky.copy(alpha = 0.2f))
                                 .clickable { 
                                     focusManager.clearFocus()
-                                    updateWindowFocus(false)
                                     isManualModeSelected.value = false 
                                 }
-                                .padding(vertical = 2.5.dp),
+                                .padding(vertical = 1.5.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 "⚡ AUTO OCR",
                                 color = if (!isManualMode) Color.Black else RangoTextWhite,
-                                fontSize = 7.sp,
+                                fontSize = 6.5.sp,
                                 fontWeight = FontWeight.Black
                               )
                         }
@@ -952,16 +1003,15 @@ class OverlayService : Service() {
                                 .background(if (isManualMode) RangoLimeGreen else RangoTealSky.copy(alpha = 0.2f))
                                 .clickable { 
                                     focusManager.clearFocus()
-                                    updateWindowFocus(false)
                                     isManualModeSelected.value = true 
                                 }
-                                .padding(vertical = 2.5.dp),
+                                .padding(vertical = 1.5.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 "✏️ MANUAL",
                                 color = if (isManualMode) Color.Black else RangoTextWhite,
-                                fontSize = 7.sp,
+                                fontSize = 6.5.sp,
                                 fontWeight = FontWeight.Black
                             )
                         }
@@ -972,7 +1022,7 @@ class OverlayService : Service() {
                         Text(
                             "Enter multiplier:",
                             color = RangoTextMuted,
-                            fontSize = 7.5.sp,
+                            fontSize = 7.sp,
                             fontWeight = FontWeight.Bold
                         )
                         
@@ -981,9 +1031,15 @@ class OverlayService : Service() {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(24.dp)
+                                .height(18.dp)
                                 .clip(RoundedCornerShape(3.dp))
-                                .background(Color.Black.copy(alpha = 0.4f)),
+                                .background(Color.Black.copy(alpha = 0.4f))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    focusRequester.requestFocus()
+                                },
                             contentAlignment = Alignment.CenterStart
                         ) {
                             BasicTextField(
@@ -993,7 +1049,7 @@ class OverlayService : Service() {
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                 textStyle = LocalTextStyle.current.copy(
                                     color = RangoTextWhite,
-                                    fontSize = 9.sp,
+                                    fontSize = 8.sp,
                                     fontFamily = FontFamily.Monospace,
                                     textAlign = TextAlign.Center
                                 ),
@@ -1021,7 +1077,7 @@ class OverlayService : Service() {
                                             Text(
                                                 "e.g. 1.85",
                                                 color = RangoTextMuted,
-                                                fontSize = 9.sp,
+                                                fontSize = 8.sp,
                                                 fontFamily = FontFamily.Monospace,
                                                 textAlign = TextAlign.Center
                                             )
@@ -1029,24 +1085,6 @@ class OverlayService : Service() {
                                         innerTextField()
                                     }
                                 }
-                            )
-
-                            // Overlay transparent click target covering the entire input field area to handle resetting and posting focus cleanly on every click!
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        focusManager.clearFocus()
-                                        mainHandler.post {
-                                            updateWindowFocus(true)
-                                            mainHandler.post {
-                                                focusRequester.requestFocus()
-                                            }
-                                        }
-                                    }
                             )
                         }
                         
@@ -1067,10 +1105,10 @@ class OverlayService : Service() {
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5)),
                             shape = RoundedCornerShape(3.dp),
-                            contentPadding = PaddingValues(vertical = 1.dp),
-                            modifier = Modifier.fillMaxWidth().height(20.dp)
+                            contentPadding = PaddingValues(vertical = 0.dp),
+                            modifier = Modifier.fillMaxWidth().height(18.dp)
                         ) {
-                            Text("✔️ SUBMIT & PREDICT", color = Color.White, fontSize = 7.5.sp, fontWeight = FontWeight.ExtraBold)
+                            Text("✔️ SUBMIT & PREDICT", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.ExtraBold)
                         }
                     } else {
                         // AUTO OCR SCAN CONTROL SUBSECTION
@@ -1095,13 +1133,13 @@ class OverlayService : Service() {
                                     containerColor = if (isScanning) RangoDangerRed else RangoLimeGreen
                                 ),
                                 shape = RoundedCornerShape(3.dp),
-                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 1.dp),
-                                modifier = Modifier.fillMaxWidth().height(20.dp)
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                                modifier = Modifier.fillMaxWidth().height(18.dp)
                             ) {
                                 Text(
                                     if (isScanning) "STOP SCAN" else "START AUTO OCR",
                                     color = Color.Black,
-                                    fontSize = 7.5.sp,
+                                    fontSize = 7.sp,
                                     fontWeight = FontWeight.Black
                                 )
                             }
@@ -1111,13 +1149,13 @@ class OverlayService : Service() {
                         Text(
                             text = logInfo,
                             color = RangoTextMuted,
-                            fontSize = 7.sp,
-                            lineHeight = 8.5.sp,
+                            fontSize = 6.5.sp,
+                            lineHeight = 8.sp,
                             textAlign = TextAlign.Center,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(Color.Black.copy(alpha = 0.4f))
-                                .padding(2.dp)
+                                .padding(1.5.dp)
                         )
                     }
                 }
@@ -1135,8 +1173,8 @@ class OverlayService : Service() {
                         containerColor = if (bottomExpanded) RangoTealSky.copy(alpha = 0.3f) else RangoDesertGold
                     ),
                     shape = RoundedCornerShape(3.dp),
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 1.dp),
-                    modifier = Modifier.fillMaxWidth().height(22.dp)
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                    modifier = Modifier.fillMaxWidth().height(18.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1146,7 +1184,7 @@ class OverlayService : Service() {
                         Text(
                             text = if (bottomExpanded) "🔮 HIDE AI & LOBBY 🔼" else "🔮 SHOW AI & LOBBY 🔽",
                             color = if (bottomExpanded) RangoTextWhite else Color.Black,
-                            fontSize = 8.sp,
+                            fontSize = 7.sp,
                             fontWeight = FontWeight.Black
                         )
                     }
@@ -1264,8 +1302,6 @@ class OverlayService : Service() {
     }
 
     private fun startMediaProjection(resultCode: Int, data: Intent) {
-        val targetWidth = 480
-        val targetHeight = 800
         try {
             // Dynamically upgrade FGS run-type to mediaProjection BEFORE requesting projection session to satisfy AndroidQ+ / Android14 requirements!
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -1290,16 +1326,7 @@ class OverlayService : Service() {
             isOcrScanning.value = true
             captureLogs.value = "Media Screen stream authorized! Scanning flight decimals..."
             
-            // Setup Virtual Display mirroring to read pixels
-            val density = 1
-            
-            imageReader = ImageReader.newInstance(targetWidth, targetHeight, PixelFormat.RGBA_8888, 2)
-            mediaProjection?.createVirtualDisplay(
-                "RangoOcrMirror",
-                targetWidth, targetHeight, density,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                imageReader?.surface, null, null
-            )
+            setupVirtualDisplay()
         } catch (e: Exception) {
             e.printStackTrace()
             captureLogs.value = "Auth/Projection Error: ${e.localizedMessage}"
@@ -1338,22 +1365,72 @@ class OverlayService : Service() {
                             val rowStride = planes[0].rowStride
 
                             if (pixelStride > 0) {
-                                val rowPadding = rowStride - pixelStride * targetWidth
-                                val widthToUse = targetWidth + rowPadding / pixelStride
+                                val wUse = currentWidth
+                                val hUse = currentHeight
+                                val rowPadding = rowStride - pixelStride * wUse
+                                val widthToUse = wUse + rowPadding / pixelStride
                                 if (widthToUse > 0) {
                                     val bitmap = Bitmap.createBitmap(
                                         widthToUse,
-                                        targetHeight,
+                                        hUse,
                                         Bitmap.Config.ARGB_8888
                                     )
                                     bitmap.copyPixelsFromBuffer(buffer)
                                     parentBitmap = bitmap
 
+                                    // Blank out overlay window in screenshot to prevent OCR on overlay values itself!
+                                    val overlayV = overlayView
+                                    if (overlayV != null && overlayV.isAttachedToWindow) {
+                                        val lp = overlayV.layoutParams as? WindowManager.LayoutParams
+                                        if (lp != null) {
+                                            // Get real screen bounds safely
+                                            val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                                            val realW: Int
+                                            val realH: Int
+                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                                val bounds = wm.currentWindowMetrics.bounds
+                                                realW = bounds.width().coerceAtLeast(1)
+                                                realH = bounds.height().coerceAtLeast(1)
+                                            } else {
+                                                val display = wm.defaultDisplay
+                                                val size = android.graphics.Point()
+                                                display.getRealSize(size)
+                                                realW = size.x.coerceAtLeast(1)
+                                                realH = size.y.coerceAtLeast(1)
+                                            }
+
+                                            // Scale factors
+                                            val scaleX = wUse.toFloat() / realW.toFloat()
+                                            val scaleY = hUse.toFloat() / realH.toFloat()
+
+                                            // Coordinates in virtual display dimensions
+                                            val overlayL = (lp.x * scaleX).toInt().coerceIn(0, widthToUse)
+                                            val overlayT = (lp.y * scaleY).toInt().coerceIn(0, hUse)
+                                            val overlayR = ((lp.x + overlayV.width) * scaleX).toInt().coerceIn(0, widthToUse)
+                                            val overlayB = ((lp.y + overlayV.height) * scaleY).toInt().coerceIn(0, hUse)
+
+                                            if (overlayR > overlayL && overlayB > overlayT) {
+                                                val canvas = android.graphics.Canvas(bitmap)
+                                                val paint = android.graphics.Paint().apply {
+                                                    color = android.graphics.Color.BLACK
+                                                    style = android.graphics.Paint.Style.FILL
+                                                }
+                                                canvas.drawRect(
+                                                    overlayL.toFloat(),
+                                                    overlayT.toFloat(),
+                                                    overlayR.toFloat(),
+                                                    overlayB.toFloat(),
+                                                    paint
+                                                )
+                                            }
+                                        }
+                                    }
+
                                     // Crop from top of screen down to 48% height to scan both Lobby Ribbon and giant center text
-                                    val x = (targetWidth * 0.03).toInt()
-                                    val y = (targetHeight * 0.02).toInt()
-                                    val w = (targetWidth * 0.94).toInt().coerceAtMost(bitmap.width - x)
-                                    val h = (targetHeight * 0.46).toInt().coerceAtMost(bitmap.height - y)
+                                    val x = (wUse * 0.03).toInt()
+                                    val y = (hUse * 0.02).toInt()
+                                    val w = (wUse * 0.94).toInt().coerceAtMost(bitmap.width - x)
+                                    val h = (hUse * 0.46).toInt().coerceAtMost(bitmap.height - y)
 
                                     if (w > 0 && h > 0) {
                                         val croppedBitmap = Bitmap.createBitmap(bitmap, x, y, w, h)
