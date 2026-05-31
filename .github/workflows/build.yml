@@ -26,6 +26,11 @@ jobs:
       - name: Grant Execute Permission to gradlew
         run: chmod +x gradlew
 
+      - name: Regenerate Gradle Wrapper
+        run: |
+          rm -f gradle/wrapper/gradle-wrapper.jar
+          gradle wrapper
+
       - name: Build Debug APK
         run: ./gradlew assembleDebug --no-daemon
 
