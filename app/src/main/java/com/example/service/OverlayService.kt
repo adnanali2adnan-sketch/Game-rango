@@ -76,12 +76,17 @@ import com.example.MainActivity
 import com.example.data.AppDatabase
 import com.example.data.CrashRound
 import com.example.data.CrashRepository
+import com.example.data.DragonTigerRound
+import com.example.data.DragonTigerDao
+import com.example.data.DragonTigerAnalyzer
 import com.example.ui.theme.*
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.text.DecimalFormat
 
 class OverlayService : Service() {
@@ -113,7 +118,17 @@ class OverlayService : Service() {
     
     // DB Repository
     private lateinit var repository: CrashRepository
+    private lateinit var dtDao: DragonTigerDao
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    
+    // HUD setup
+    enum class HudMode { HORIZONTAL, VERTICAL }
+    private val _currentHudMode = MutableStateFlow(HudMode.HORIZONTAL)
+    val currentHudMode: StateFlow<HudMode> = _currentHudMode.asStateFlow()
+    
+    private val overlayGame = MutableStateFlow("RANGO")
+    private var autoHudMode = true
+    private var recentDtRoundsList = MutableStateFlow<List<DragonTigerRound>>(emptyList())
     
     // Floating View States
     private var isExpanded = MutableStateFlow(false)
@@ -189,6 +204,7 @@ class OverlayService : Service() {
         
         val database = AppDatabase.getDatabase(this)
         repository = CrashRepository(database.crashDao())
+        dtDao = database.dragonTigerDao()
         
         // Listen to Room updates to keep our recent items list in sync!
         serviceScope.launch {
@@ -198,6 +214,13 @@ class OverlayService : Service() {
                     lastRecordedValue = list.first().multiplier
                     latestScannedMultiplier.value = String.format("%.2f", lastRecordedValue)
                 }
+            }
+        }
+
+        // Listen to Dragon Tiger updates
+        serviceScope.launch {
+            dtDao.getAllRounds().collect { list ->
+                recentDtRoundsList.value = list.take(15)
             }
         }
 
@@ -485,6 +508,53 @@ class OverlayService : Service() {
         }
     }
 
+    private fun updatePillGravity(gravityVal: Int) {
+        mainHandler.post {
+            val root = overlayView ?: return@post
+            val lp = root.layoutParams as? WindowManager.LayoutParams ?: return@post
+            lp.gravity = gravityVal
+            try {
+                windowManager.updateViewLayout(root, lp)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun updateHudModeAndGame(modeStr: String, gameStr: String) {
+        serviceScope.launch {
+            overlayGame.value = gameStr
+            when (modeStr) {
+                "VERTICAL" -> {
+                    autoHudMode = false
+                    _currentHudMode.value = HudMode.VERTICAL
+                    updatePillGravity(Gravity.TOP or Gravity.END)
+                }
+                "HORIZONTAL" -> {
+                    autoHudMode = false
+                    _currentHudMode.value = HudMode.HORIZONTAL
+                    updatePillGravity(Gravity.TOP or Gravity.START)
+                }
+                "AUTO" -> {
+                    autoHudMode = true
+                    val isPortrait = resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+                    _currentHudMode.value = if (isPortrait) HudMode.HORIZONTAL else HudMode.VERTICAL
+                    updatePillGravity(if (isPortrait) (Gravity.TOP or Gravity.START) else (Gravity.TOP or Gravity.START))
+                }
+            }
+            // Trigger automatic AI strategy advice refresh for the newly switched game
+            triggerRealtimeGeminiPipeline(force = true)
+        }
+    }
+
+    private fun addDragonTigerRoundResult(result: String) {
+        serviceScope.launch {
+            dtDao.insertRound(com.example.data.DragonTigerRound(result = result))
+            captureLogs.value = "Result logged: $result"
+            triggerRealtimeGeminiPipeline(force = true)
+        }
+    }
+
     data class LiveMetrics(
         val nextPrediction: Double,
         val cashout: Double,
@@ -605,11 +675,12 @@ class OverlayService : Service() {
         valueColor: Color,
         modifier: Modifier = Modifier
     ) {
+        val density = androidx.compose.ui.platform.LocalDensity.current
         Box(
             modifier = modifier
                 .clip(RoundedCornerShape(3.dp))
                 .background(bgColor)
-                .padding(vertical = 0.5.dp, horizontal = 1.dp),
+                .padding(horizontal = 4.dp, vertical = 3.dp),
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -619,11 +690,11 @@ class OverlayService : Service() {
                     fontSize = 5.sp,
                     fontWeight = FontWeight.Bold
                 )
-                Spacer(modifier = Modifier.height(0.25.dp))
+                Spacer(modifier = Modifier.height(with(density) { 2.toDp() }))
                 Text(
                     text = value,
                     color = valueColor,
-                    fontSize = 8.sp,
+                    fontSize = 8.5.sp,
                     fontWeight = FontWeight.Black,
                     fontFamily = FontFamily.Monospace,
                     maxLines = 1
@@ -647,6 +718,10 @@ class OverlayService : Service() {
         val isManualMode by isManualModeSelected.collectAsState()
         val bottomExpanded by isBottomSectionExpanded.collectAsState()
         
+        val overlayMode by currentHudMode.collectAsState()
+        val currentGameVal by overlayGame.collectAsState()
+        val recentDtList by recentDtRoundsList.collectAsState()
+        
         val focusRequester = remember { FocusRequester() }
         val focusManager = LocalFocusManager.current
 
@@ -655,6 +730,12 @@ class OverlayService : Service() {
                 focusManager.clearFocus()
                 updateWindowFocus(false)
             }
+        }
+
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val expandedWidthDp = remember(density) {
+            val px = resources.displayMetrics.widthPixels * 0.46f
+            with(density) { px.toDp() }
         }
 
         // Local Calculations
@@ -670,9 +751,15 @@ class OverlayService : Service() {
             else -> RangoDesertGold
         }
 
+        val overlayWidth = if (overlayMode == HudMode.VERTICAL) {
+            if (expanded) 130.dp else 36.dp
+        } else {
+            if (expanded) expandedWidthDp else 46.dp
+        }
+
         Column(
             modifier = Modifier
-                .width(if (expanded) 124.dp else 46.dp)
+                .width(overlayWidth)
                 .clip(RoundedCornerShape(6.dp))
                 .background(RangoHorizon.copy(alpha = 0.96f))
                 .clickable(
@@ -682,9 +769,27 @@ class OverlayService : Service() {
                     focusManager.clearFocus()
                     updateWindowFocus(false)
                 }
-                .padding(2.5.dp),
+                .padding(
+                    if (expanded) PaddingValues(7.dp)
+                    else {
+                        if (overlayMode == HudMode.VERTICAL) PaddingValues(vertical = 10.dp, horizontal = 4.dp)
+                        else PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                    }
+                ),
             verticalArrangement = Arrangement.spacedBy(1.dp)
         ) {
+            if (expanded) {
+                Box(
+                    modifier = Modifier
+                        .width(with(density) { 20.toDp() })
+                        .height(with(density) { 3.toDp() })
+                        .clip(RoundedCornerShape(1.5.dp))
+                        .background(RangoTextMuted.copy(alpha = 0.5f))
+                        .align(Alignment.CenterHorizontally)
+                )
+                Spacer(modifier = Modifier.height(1.dp))
+            }
+
             // Header Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -708,11 +813,15 @@ class OverlayService : Service() {
                             .background(riskColor, CircleShape)
                     )
                     Text(
-                        text = if (expanded) "🟢 PILOT" else "HUD",
+                        text = if (expanded) {
+                            if (currentGameVal == "DRAGON_TIGER") "🐉 PILOT" else "🟢 PILOT"
+                        } else {
+                            if (currentGameVal == "DRAGON_TIGER") "🐉 DT" else "HUD"
+                        },
                         style = MaterialTheme.typography.labelSmall.copy(
                             color = RangoTextWhite,
                             fontWeight = FontWeight.ExtraBold,
-                            fontSize = 7.5.sp
+                            fontSize = if (expanded) 8.5.sp else 7.sp
                         )
                     )
                 }
@@ -753,34 +862,273 @@ class OverlayService : Service() {
 
             if (!expanded) {
                 // COLLAPSED COMPACT VIEW
-                Column(
-                    modifier = Modifier.fillMaxWidth().clickable { isExpanded.value = true },
-                    verticalArrangement = Arrangement.spacedBy(0.5.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "Last: ${historyList.firstOrNull() ?: 1.00}x",
-                        color = RangoTextWhite,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    Text(
-                        text = metrics.trend,
-                        color = riskColor,
-                        fontSize = 8.5.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                    Text(
-                        text = "Tap",
-                        color = RangoTextMuted,
-                        fontSize = 7.5.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                if (overlayMode == HudMode.VERTICAL) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().clickable { isExpanded.value = true },
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        val emoji = if (currentGameVal == "DRAGON_TIGER") "🐉" else "✈️"
+                        Text(emoji, fontSize = 14.sp)
+                        
+                        val lastR = if (currentGameVal == "DRAGON_TIGER") {
+                            recentDtList.firstOrNull()?.result ?: "D"
+                        } else {
+                            if (historyList.isNotEmpty()) "${historyList.first().toInt()}x" else "1x"
+                        }
+                        Text(
+                            text = lastR,
+                            color = RangoTextWhite,
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        
+                        Text(
+                            text = "↑",
+                            color = RangoLimeGreen,
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        val predChar = if (currentGameVal == "DRAGON_TIGER") {
+                            val dtAns = DragonTigerAnalyzer.analyze(recentDtList)
+                            if (dtAns.predictedNext == "DRAGON" || dtAns.predictedNext == "TIGER") dtAns.predictedNext.take(2) else "DR"
+                        } else {
+                            "CR"
+                        }
+                        Text(
+                            text = predChar,
+                            color = RangoDesertGold,
+                            fontSize = 7.5.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().clickable { isExpanded.value = true },
+                        verticalArrangement = Arrangement.spacedBy(0.5.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = if (currentGameVal == "DRAGON_TIGER") {
+                                "Last: ${recentDtList.firstOrNull()?.result ?: "D"}"
+                            } else {
+                                "Last: ${historyList.firstOrNull() ?: 1.00}x"
+                            },
+                            color = RangoTextWhite,
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(
+                            text = if (currentGameVal == "DRAGON_TIGER") {
+                                DragonTigerAnalyzer.analyze(recentDtList).trendLabel.take(12)
+                            } else {
+                                metrics.trend
+                            },
+                            color = riskColor,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                        Text(
+                            text = "Tap",
+                            color = RangoTextMuted,
+                            fontSize = 7.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
             } else {
                 // EXPANDED INTERACTIVE CONTROL PANEL
-                HorizontalDivider(color = RangoTealSky.copy(alpha = 0.5f))
+                HorizontalDivider(color = RangoTealSky.copy(alpha = 0.5f), modifier = Modifier.padding(vertical = 3.dp))
+
+                if (currentGameVal == "DRAGON_TIGER") {
+                    val dtResult = DragonTigerAnalyzer.analyze(recentDtList)
+                    
+                    // Trend status banner
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(Color.Black.copy(alpha = 0.35f))
+                            .padding(vertical = 2.dp, horizontal = 4.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        Text(
+                            text = "${dtResult.trendEmoji} ${dtResult.trendLabel}",
+                            color = when (dtResult.riskLevel) {
+                                "HIGH RISK" -> RangoDangerRed
+                                "MED RISK" -> RangoDesertGold
+                                else -> RangoLimeGreen
+                            },
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.height(2.dp))
+                    
+                    // Prediction Grid or Row
+                    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(1.dp)
+                        ) {
+                            BoxMetricItem(
+                                title = "NEXT BET",
+                                value = dtResult.suggestedBet,
+                                bgColor = when {
+                                    dtResult.suggestedBet.contains("DRAGON") -> Color(0xFF1B5E20)
+                                    dtResult.suggestedBet.contains("TIGER") -> Color(0xFFBF360C)
+                                    else -> Color(0xFF37474F)
+                                },
+                                valueColor = Color.White,
+                                modifier = Modifier.weight(1.4f)
+                            )
+                            BoxMetricItem(
+                                title = "STREAK",
+                                value = dtResult.currentStreak,
+                                bgColor = Color(0xFF1565C0),
+                                valueColor = Color.White,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(1.dp)
+                        ) {
+                            BoxMetricItem(
+                                title = "DRAGON%",
+                                value = "${dtResult.dragonPct}%",
+                                bgColor = Color(0xFF2E7D32),
+                                valueColor = Color.White,
+                                modifier = Modifier.weight(1f)
+                            )
+                            BoxMetricItem(
+                                title = "TIGER%",
+                                value = "${dtResult.tigerPct}%",
+                                bgColor = Color(0xFFC62828),
+                                valueColor = Color.White,
+                                modifier = Modifier.weight(1f)
+                            )
+                            BoxMetricItem(
+                                title = "TIE%",
+                                value = "${dtResult.tiePct}%",
+                                bgColor = Color(0xFF6A1B9A),
+                                valueColor = Color.White,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                    
+                    if (dtResult.tieWarning) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(RangoDesertGold.copy(alpha = 0.9f))
+                                .padding(vertical = 1.5.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "⚠️ TIE OVERDUE WARNING",
+                                color = Color.Black,
+                                fontSize = 7.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                    }
+                    
+                    Text(
+                        text = dtResult.advice,
+                        color = RangoTextWhite,
+                        fontSize = 6.5.sp,
+                        lineHeight = 8.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                    )
+
+                    HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 3.dp))
+                    
+                    // Manual entry buttons
+                    Text(
+                        text = "QUICK ENTRY RESULT",
+                        color = RangoTextMuted,
+                        fontSize = 7.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                addDragonTigerRoundResult("D")
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = RangoLimeGreen),
+                            shape = RoundedCornerShape(3.dp),
+                            contentPadding = PaddingValues(0.dp),
+                            modifier = Modifier.weight(1.1f).height(21.dp)
+                        ) {
+                            Text("🐉 DRAGON", color = Color.Black, fontSize = 7.sp, fontWeight = FontWeight.Black)
+                        }
+                        Button(
+                            onClick = {
+                                addDragonTigerRoundResult("X")
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8E24AA)),
+                            shape = RoundedCornerShape(3.dp),
+                            contentPadding = PaddingValues(0.dp),
+                            modifier = Modifier.weight(0.8f).height(21.dp)
+                        ) {
+                            Text("TIE", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Black)
+                        }
+                        Button(
+                            onClick = {
+                                addDragonTigerRoundResult("T")
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = RangoDangerRed),
+                            shape = RoundedCornerShape(3.dp),
+                            contentPadding = PaddingValues(0.dp),
+                            modifier = Modifier.weight(1.1f).height(21.dp)
+                        ) {
+                            Text("🐯 TIGER", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Black)
+                        }
+                    }
+
+                    HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 3.dp))
+
+                    // OCR/Start buttons for Dragon Tiger
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                if (isScanning) {
+                                    stopOcrScanning()
+                                } else {
+                                    captureLogs.value = "Launching Dashboard for Screen Auth..."
+                                    val launchIntent = Intent(this@OverlayService, MainActivity::class.java).apply {
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                                        putExtra("EXTRA_START_OCR_IMMEDIATELY", true)
+                                    }
+                                    startActivity(launchIntent)
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = if (isScanning) RangoDangerRed else RangoLimeGreen),
+                            shape = RoundedCornerShape(3.dp),
+                            contentPadding = PaddingValues(0.dp),
+                            modifier = Modifier.fillMaxWidth().height(18.dp)
+                        ) {
+                            Text(if (isScanning) "STOP OCR" else "AUTO OCR", color = Color.Black, fontSize = 7.sp, fontWeight = FontWeight.Black)
+                        }
+                    }
+                } else {
 
                 // Heading trend status banner dynamically styled
                 val headingText = when {
@@ -805,7 +1153,7 @@ class OverlayService : Service() {
                     Text(
                         text = headingText,
                         color = headingColor,
-                        fontSize = 8.5.sp,
+                        fontSize = 9.5.sp,
                         fontWeight = FontWeight.Black
                     )
                 }
@@ -871,13 +1219,13 @@ class OverlayService : Service() {
                 Text(
                     text = metrics.description,
                     color = RangoTextWhite,
-                    fontSize = 7.sp,
-                    lineHeight = 8.5.sp,
+                    fontSize = 6.sp,
+                    lineHeight = 7.5.sp,
                     fontWeight = FontWeight.Medium,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 0.dp, vertical = 2.dp)
                 )
 
-                HorizontalDivider(color = RangoTealSky.copy(alpha = 0.5f))
+                HorizontalDivider(color = RangoTealSky.copy(alpha = 0.5f), modifier = Modifier.padding(vertical = 3.dp))
 
                 // Wallet Balance & Adjustment Section
                 Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
@@ -931,7 +1279,7 @@ class OverlayService : Service() {
                     }
                 }
 
-                HorizontalDivider(color = RangoTealSky.copy(alpha = 0.5f))
+                HorizontalDivider(color = RangoTealSky.copy(alpha = 0.5f), modifier = Modifier.padding(vertical = 3.dp))
 
                 // Risk & Last Multipliers Info Summary
                 val riskName = when (metrics.streak) {
@@ -1049,7 +1397,7 @@ class OverlayService : Service() {
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                 textStyle = LocalTextStyle.current.copy(
                                     color = RangoTextWhite,
-                                    fontSize = 8.sp,
+                                    fontSize = 10.sp,
                                     fontFamily = FontFamily.Monospace,
                                     textAlign = TextAlign.Center
                                 ),
@@ -1070,14 +1418,14 @@ class OverlayService : Service() {
                                     },
                                 decorationBox = { innerTextField ->
                                     Box(
-                                        modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
+                                        modifier = Modifier.fillMaxSize().padding(3.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         if (inputText.isEmpty()) {
                                             Text(
                                                 "e.g. 1.85",
                                                 color = RangoTextMuted,
-                                                fontSize = 8.sp,
+                                                fontSize = 10.sp,
                                                 fontFamily = FontFamily.Monospace,
                                                 textAlign = TextAlign.Center
                                             )
@@ -1159,8 +1507,9 @@ class OverlayService : Service() {
                         )
                     }
                 }
+                } // Ends Rango/Aviator else block
 
-                HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f))
+                HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 3.dp))
 
                 // Toggle Button for bottom AI & Lobby Ribbon - keeps the window height extremely small!
                 Button(
@@ -1201,7 +1550,7 @@ class OverlayService : Service() {
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(
-                            modifier = Modifier.padding(4.dp),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
                             verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
                             Row(
@@ -1232,13 +1581,13 @@ class OverlayService : Service() {
                                     modifier = Modifier.padding(vertical = 1.5.dp)
                                 ) {
                                     CircularProgressIndicator(color = RangoLimeGreen, modifier = Modifier.size(8.dp), strokeWidth = 1.dp)
-                                    Text("Analyzing live...", color = RangoTextWhite, fontSize = 7.5.sp)
+                                    Text("Analyzing live...", color = RangoTextWhite, fontSize = 6.5.sp)
                                 }
                             } else if (liveAdvice.isEmpty()) {
                                 Text(
                                     "Rounds add karo → auto analysis shuru ho",
                                     color = RangoTextWhite,
-                                    fontSize = 8.sp,
+                                    fontSize = 6.5.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     modifier = Modifier.padding(vertical = 1.dp)
                                 )
@@ -1246,8 +1595,8 @@ class OverlayService : Service() {
                                 Text(
                                     text = liveAdvice,
                                     color = RangoTextWhite,
-                                    fontSize = 8.sp,
-                                    lineHeight = 10.5.sp,
+                                    fontSize = 6.5.sp,
+                                    lineHeight = 8.5.sp,
                                     fontFamily = FontFamily.Monospace,
                                     modifier = Modifier.padding(top = 1.5.dp)
                                 )
@@ -1543,29 +1892,29 @@ class OverlayService : Service() {
             }
             
             isGeminiLoading.value = true
-            val recentList = recentMultipliersList.value.take(10)
-            if (recentList.isEmpty()) {
-                isGeminiLoading.value = false
-                return@launch
-            }
-            
-            val multipliersStr = recentList.joinToString(", ") { "${it}x" }
-            val currentBalance = walletBalanceInput.value
-            
-            val prompt = """
-                Act as a lightning-fast, high-accuracy math analytics processor for a crash game. Your target is a low-end display system, so your response must be extremely concise, direct, and stripped of unnecessary prose.
-                Analyze the sequence of incoming multipliers provided: $multipliersStr
-                Current Balance is PKR $currentBalance.
-                Output Format Requirements (Use simple concise Hinglish/English similar to the mockup):
-                - RISK LEVEL: [LOW / MEDIUM / HIGH]
-                - SUGGESTED BET: [PKR X.XX or SKIP]
-                - SAFE CASHOUT: [X.XXx]
-                - ANALYSIS: [Provide a 1-sentence math explanation in very simple mixed English/Urdu/Hindi, e.g. "Cold streak chal raha hai, next 1.80x recovery chance high lag raha hai."]
-                Do not include markdown intro header, backticks, asterisks, or long conversational filler. Keep response strictly under 4 lines.
-            """.trimIndent()
+            val game = overlayGame.value
+            val currentBalance = walletBalanceInput.value.toDoubleOrNull() ?: 280.89
             
             try {
-                val adviceResult = com.example.api.GeminiClient.getStrategyAdvice(prompt, key)
+                val adviceResult = if (game == "DRAGON_TIGER") {
+                    val recentList = recentDtRoundsList.value.take(10)
+                    if (recentList.isEmpty()) {
+                        isGeminiLoading.value = false
+                        return@launch
+                    }
+                    val dataStr = recentList.joinToString(", ") { it.result }
+                    val trend = DragonTigerAnalyzer.analyze(recentDtRoundsList.value).trendLabel
+                    com.example.api.GeminiClient.analyzeGame(key, game, dataStr, currentBalance, trend)
+                } else {
+                    val recentList = recentMultipliersList.value.take(10)
+                    if (recentList.isEmpty()) {
+                        isGeminiLoading.value = false
+                        return@launch
+                    }
+                    val multipliersStr = recentList.joinToString(", ") { "${it}x" }
+                    val trend = calculateLiveMetrics(recentMultipliersList.value).trend
+                    com.example.api.GeminiClient.analyzeGame(key, game, multipliersStr, currentBalance, trend)
+                }
                 geminiAiAdvice.value = adviceResult
             } catch (e: Exception) {
                 geminiAiAdvice.value = "Advice Fail: ${e.localizedMessage}"

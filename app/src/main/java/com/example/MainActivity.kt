@@ -130,4 +130,8 @@ class MainActivity : ComponentActivity() {
         val intent = projectionManager.createScreenCaptureIntent()
         projectionLauncher.launch(intent)
     }
+
+    fun updateHudMode(mode: String, game: String) {
+        OverlayService.activeInstance?.updateHudModeAndGame(mode, game)
+    }
 }

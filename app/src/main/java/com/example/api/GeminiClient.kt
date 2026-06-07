@@ -67,4 +67,30 @@ object GeminiClient {
             "API Server connection issue: ${e.localizedMessage}\n\nPlease check your Internet and ensure your API Key is valid."
         }
     }
+
+    suspend fun analyzeGame(
+        apiKey: String,
+        gameType: String,  // "RANGO" / "DRAGON_TIGER" / "AVIATOR"
+        data: String,      // multipliers for crash, D/T/TIE history for card game
+        balance: Double,
+        trendLabel: String
+    ): String {
+        val prompt = when (gameType) {
+            "DRAGON_TIGER" -> """
+                You are Dragon Tiger card game advisor.
+                Recent results (newest first): $data (D=Dragon,T=Tiger,X=Tie)
+                Balance: PKR $balance. Current trend: $trendLabel.
+                Give 2-sentence advice: predict next and bet recommendation.
+                Max 35 words. Direct, no disclaimers.
+            """.trimIndent()
+            
+            else -> """
+                You are crash game advisor for $gameType.
+                Recent multipliers: $data
+                Balance: PKR $balance. Trend: $trendLabel.
+                2-sentence analysis. Cashout recommendation. Max 40 words.
+            """.trimIndent()
+        }
+        return getStrategyAdvice(prompt, apiKey)
+    }
 }

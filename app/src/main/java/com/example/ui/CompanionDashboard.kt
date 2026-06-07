@@ -30,6 +30,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.CrashRound
+import com.example.data.DragonTigerRound
+import com.example.data.DragonTigerAnalyzer
 import com.example.MainActivity
 import com.example.ui.theme.*
 import com.example.viewmodel.CompanionViewModel
@@ -51,6 +53,27 @@ fun CompanionDashboard(
     val betInput by viewModel.currentBetAmountInput.collectAsStateWithLifecycle()
     val cashOutInput by viewModel.currentCashOutInput.collectAsStateWithLifecycle()
     val balanceInput by viewModel.userBalanceInput.collectAsStateWithLifecycle()
+
+    val currentGame by viewModel.currentGame.collectAsStateWithLifecycle()
+    val dtRounds by viewModel.dtRounds.collectAsStateWithLifecycle()
+    val dtResult by viewModel.dtResult.collectAsStateWithLifecycle()
+
+    val context = LocalContext.current
+    val mainActivity = context as? MainActivity
+    
+    LaunchedEffect(currentGame) {
+        when (currentGame) {
+            "DRAGON_TIGER" -> {
+                mainActivity?.updateHudMode("VERTICAL", "DRAGON_TIGER")
+            }
+            "AVIATOR" -> {
+                mainActivity?.updateHudMode("AUTO", "AVIATOR")
+            }
+            else -> {
+                mainActivity?.updateHudMode("HORIZONTAL", "RANGO")
+            }
+        }
+    }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -180,8 +203,49 @@ fun CompanionDashboard(
                 .padding(innerPadding)
                 .fillMaxSize()
         ) {
-            // High-Contrast Multiplier Strip (Recent items)
-            MultiplierHistoryRibbon(history = history.take(15))
+            // Horizontal Game Selector Tab Row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(RangoHorizon)
+                    .padding(vertical = 8.dp, horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val gameList = listOf(
+                    Triple("RANGO", "🎮 RANGO", RangoLimeGreen),
+                    Triple("DRAGON_TIGER", "🐉 DRAGON TIGER", RangoDangerRed),
+                    Triple("AVIATOR", "✈️ AVIATOR", Color(0xFF1976D2))
+                )
+                gameList.forEach { (type, label, labelColor) ->
+                    val isSelected = currentGame == type
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                if (isSelected) labelColor else Color.Black.copy(alpha = 0.5f)
+                            )
+                            .clickable {
+                                viewModel.setCurrentGame(type)
+                            }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = label,
+                            color = if (isSelected) Color.White else RangoTextMuted,
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+                }
+            }
+
+            // High-Contrast Multiplier Strip (Recent items) if not on Dragon Tiger
+            if (currentGame != "DRAGON_TIGER") {
+                MultiplierHistoryRibbon(history = history.take(15))
+            }
 
             // Main Contents switching between tabs
             Box(
@@ -191,6 +255,7 @@ fun CompanionDashboard(
             ) {
                 when (selectedTab) {
                     0 -> DashboardTab(
+                        currentGame = currentGame,
                         metrics = localStats,
                         historyList = history,
                         onResultLogged = { mult, bet, cashout ->
@@ -203,7 +268,11 @@ fun CompanionDashboard(
                         cashOutInput = cashOutInput,
                         onCashOutChange = { viewModel.currentCashOutInput.value = it },
                         balanceInput = balanceInput,
-                        onBalanceChange = { viewModel.userBalanceInput.value = it }
+                        onBalanceChange = { viewModel.userBalanceInput.value = it },
+                        dtRounds = dtRounds,
+                        dtResult = dtResult,
+                        onDTRoundLogged = { viewModel.addDTRound(it) },
+                        onDTClear = { viewModel.clearDTRounds() }
                     )
                     1 -> {
                         val apiKey by viewModel.geminiApiKey.collectAsStateWithLifecycle()
@@ -297,6 +366,317 @@ fun MultiplierHistoryRibbon(history: List<CrashRound>) {
  */
 @Composable
 fun DashboardTab(
+    currentGame: String,
+    metrics: LocalMetrics,
+    historyList: List<CrashRound>,
+    onResultLogged: (Double, Double, Double) -> Unit,
+    multInput: String,
+    onMultChange: (String) -> Unit,
+    betInput: String,
+    onBetChange: (String) -> Unit,
+    cashOutInput: String,
+    onCashOutChange: (String) -> Unit,
+    balanceInput: String,
+    onBalanceChange: (String) -> Unit,
+    dtRounds: List<DragonTigerRound>,
+    dtResult: DragonTigerAnalyzer.DTResult,
+    onDTRoundLogged: (String) -> Unit,
+    onDTClear: () -> Unit
+) {
+    if (currentGame == "DRAGON_TIGER") {
+        DragonTigerDashboardContent(
+            dtRounds = dtRounds,
+            dtResult = dtResult,
+            onDTRoundLogged = onDTRoundLogged,
+            onDTClear = onDTClear
+        )
+    } else {
+        CrashDashboardContent(
+            metrics = metrics,
+            historyList = historyList,
+            onResultLogged = onResultLogged,
+            multInput = multInput,
+            onMultChange = onMultChange,
+            betInput = betInput,
+            onBetChange = onBetChange,
+            cashOutInput = cashOutInput,
+            onCashOutChange = onCashOutChange,
+            balanceInput = balanceInput,
+            onBalanceChange = onBalanceChange
+        )
+    }
+}
+
+@Composable
+fun DragonTigerDashboardContent(
+    dtRounds: List<DragonTigerRound>,
+    dtResult: DragonTigerAnalyzer.DTResult,
+    onDTRoundLogged: (String) -> Unit,
+    onDTClear: () -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Activation & Overlay Status Card
+        item {
+            val context = LocalContext.current
+            val mainActivity = context as? MainActivity
+            
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(containerColor = RangoCardBg),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "🐉 DRAGON TIGER AI COCKPIT HUD",
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            color = RangoDangerRed,
+                            fontWeight = FontWeight.Bold
+                        )
+                    )
+                    Text(
+                        "Run the background floating widget on top of Dragon Tiger card screen. Tap quick entries to track trends instantly.",
+                        style = MaterialTheme.typography.bodySmall.copy(color = RangoTextMuted)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { mainActivity?.startFloatingCockpit() },
+                            colors = ButtonDefaults.buttonColors(containerColor = RangoLimeGreen),
+                            modifier = Modifier.weight(1f).height(38.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.Dashboard, "bubble", tint = Color.Black, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("ACTIVATE HUD", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Dragon Tiger Analytics Banner & Cards
+        item {
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(containerColor = RangoHorizon),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        "📊 DYNAMIC RISK & TELEMETRY ENGINE",
+                        color = RangoDesertGold,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                    )
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1.3f)) {
+                            Text("SUGGESTED NEXT", color = RangoTextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = dtResult.suggestedBet,
+                                color = if (dtResult.suggestedBet.contains("DRAGON")) RangoLimeGreen else if (dtResult.suggestedBet.contains("TIGER")) RangoDangerRed else Color.White,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("STREAK STATUS", color = RangoTextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(dtResult.currentStreak, color = RangoDesertGold, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    
+                    HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 4.dp))
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Dragon: ${dtResult.dragonPct}%", color = RangoLimeGreen, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text("Tiger: ${dtResult.tigerPct}%", color = RangoDangerRed, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text("Tie: ${dtResult.tiePct}%", color = RangoDesertGold, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+
+                    if (dtResult.tieWarning) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(RangoDesertGold.copy(alpha = 0.2f))
+                                .padding(vertical = 6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "🚨 TIE OVERDUE WARNING ACTIVE",
+                                color = RangoDesertGold,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color.Black.copy(alpha = 0.4f))
+                            .padding(8.dp)
+                    ) {
+                        Text(
+                            text = dtResult.advice,
+                            color = RangoTextWhite,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
+            }
+        }
+
+        // Quick Interactive Actions Card
+        item {
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(containerColor = RangoCardBg),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        "✏️ LOG CURRENT ROUND OUTCOME",
+                        color = RangoLimeGreen,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { onDTRoundLogged("D") },
+                            colors = ButtonDefaults.buttonColors(containerColor = RangoLimeGreen),
+                            modifier = Modifier.weight(1f).height(44.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("🐉 DRAGON", color = Color.Black, fontWeight = FontWeight.Black, fontSize = 11.sp)
+                        }
+                        Button(
+                            onClick = { onDTRoundLogged("X") },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8E24AA)),
+                            modifier = Modifier.weight(0.7f).height(44.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("TIE", color = Color.White, fontWeight = FontWeight.Black, fontSize = 11.sp)
+                        }
+                        Button(
+                            onClick = { onDTRoundLogged("T") },
+                            colors = ButtonDefaults.buttonColors(containerColor = RangoDangerRed),
+                            modifier = Modifier.weight(1f).height(44.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("🐯 TIGER", color = Color.White, fontWeight = FontWeight.Black, fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+        }
+
+        // History Log and Reset Header
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "HISTORICAL CARDS LOGS (${dtRounds.size})",
+                    style = MaterialTheme.typography.titleSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = RangoTextMuted,
+                        letterSpacing = 0.5.sp
+                    )
+                )
+                IconButton(
+                    onClick = onDTClear,
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(Icons.Default.DeleteSweep, "Clear database", tint = RangoDangerRed)
+                }
+            }
+        }
+
+        if (dtRounds.isEmpty()) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "No cards rounds logged yet. Tap outcomes above to trace trends.",
+                        color = RangoTextMuted,
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+        } else {
+            item {
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(dtRounds) { round ->
+                        val bg = when (round.result) {
+                            "D" -> RangoLimeGreen
+                            "T" -> RangoDangerRed
+                            else -> Color(0xFF8E24AA)
+                        }
+                        val label = when (round.result) {
+                            "D" -> "DRAGON"
+                            "T" -> "TIGER"
+                            else -> "TIE"
+                        }
+                        val txtColor = if (round.result == "D") Color.Black else Color.White
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(bg)
+                                .padding(horizontal = 10.dp, vertical = 5.dp)
+                        ) {
+                            Text(
+                                text = label,
+                                color = txtColor,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CrashDashboardContent(
     metrics: LocalMetrics,
     historyList: List<CrashRound>,
     onResultLogged: (Double, Double, Double) -> Unit,

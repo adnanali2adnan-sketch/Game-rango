@@ -1,6 +1,7 @@
 package com.example.viewmodel
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -8,31 +9,52 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.AppDatabase
 import com.example.data.CrashRound
 import com.example.data.CrashRepository
+import com.example.data.DragonTigerRound
+import com.example.data.DragonTigerDao
+import com.example.data.DragonTigerAnalyzer
 import com.example.api.GeminiClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 class CompanionViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: CrashRepository
+    private val dtDao: DragonTigerDao
     private val context = application.applicationContext
 
     private val _geminiApiKey = MutableStateFlow("")
     val geminiApiKey: StateFlow<String> = _geminiApiKey.asStateFlow()
 
+    private val _currentGame = MutableStateFlow("RANGO")
+    val currentGame: StateFlow<String> = _currentGame.asStateFlow()
+
     init {
         val database = AppDatabase.getDatabase(application)
         repository = CrashRepository(database.crashDao())
+        dtDao = database.dragonTigerDao()
         _geminiApiKey.value = com.example.util.SecurePrefs.getGeminiApiKey(context)
+        
+        // Load default game setting safely
+        _currentGame.value = context.getSharedPreferences("RangoPrefs", Context.MODE_PRIVATE)
+            .getString("current_game", "RANGO") ?: "RANGO"
     }
 
     fun setGeminiApiKey(key: String) {
         _geminiApiKey.value = key
         com.example.util.SecurePrefs.saveGeminiApiKey(context, key)
+    }
+
+    fun setCurrentGame(game: String) {
+        _currentGame.value = game
+        context.getSharedPreferences("RangoPrefs", Context.MODE_PRIVATE)
+            .edit()
+            .putString("current_game", game)
+            .apply()
     }
 
     // Connect to Room flows
@@ -42,6 +64,36 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
+
+    val dtRounds: StateFlow<List<DragonTigerRound>> = dtDao.getAllRounds()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    val dtResult: StateFlow<DragonTigerAnalyzer.DTResult> = dtRounds
+        .map { rounds -> DragonTigerAnalyzer.analyze(rounds) }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = DragonTigerAnalyzer.analyze(emptyList())
+        )
+
+    fun addDTRound(result: String) {
+        viewModelScope.launch {
+            dtDao.insertRound(DragonTigerRound(result = result))
+            if (_geminiApiKey.value.isNotBlank()) {
+                refreshAiStrategy()
+            }
+        }
+    }
+
+    fun clearDTRounds() {
+        viewModelScope.launch {
+            dtDao.clearAll()
+        }
+    }
 
     // State of AI Strategy Advisor
     private val _aiAdviceText = MutableStateFlow<String>("")
@@ -124,30 +176,33 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
     fun refreshAiStrategy() {
         viewModelScope.launch {
             _isLoadingAdvice.value = true
-            val recentList = repository.getRecentLimit(15)
-            if (recentList.isEmpty()) {
-                _aiAdviceText.value = "Lobby history is currently empty. Please log some round outcomes to get AI advisory support. (Lobby history khali hai!)"
-                _isLoadingAdvice.value = false
-                return@launch
+            val game = _currentGame.value
+            val customKey = _geminiApiKey.value
+            val balanceValue = userBalanceInput.value.toDoubleOrNull() ?: 280.89
+
+            val answer = if (game == "DRAGON_TIGER") {
+                val recentList = dtDao.getRecentRounds(15)
+                if (recentList.isEmpty()) {
+                    _aiAdviceText.value = "Lobby history is currently empty. Please log some Dragon Tiger rounds to begin analysis."
+                    _isLoadingAdvice.value = false
+                    return@launch
+                }
+                val dataStr = recentList.joinToString(", ") { it.result }
+                val trend = DragonTigerAnalyzer.analyze(recentList).trendLabel
+                GeminiClient.analyzeGame(customKey, game, dataStr, balanceValue, trend)
+            } else {
+                val recentList = repository.getRecentLimit(15)
+                if (recentList.isEmpty()) {
+                    _aiAdviceText.value = "Lobby history is currently empty. Please log some round outcomes to get AI advisory support. (Lobby history khali hai!)"
+                    _isLoadingAdvice.value = false
+                    return@launch
+                }
+                val multipliersStr = recentList.joinToString(", ") { "${it.multiplier}x" }
+                val localStats = calculateLocalMetrics()
+                val trend = localStats.localRiskScore
+                GeminiClient.analyzeGame(customKey, game, multipliersStr, balanceValue, trend)
             }
 
-            // Map outcomes to simple text string
-            val multipliersStr = recentList.joinToString(", ") { "${it.multiplier}x" }
-            val currentBalance = userBalanceInput.value
-
-            val prompt = """
-                Act as a lightning-fast, high-accuracy math analytics processor for a crash game. Your target is a low-end display system, so your response must be extremely concise, direct, and stripped of unnecessary prose.
-                Analyze the sequence of incoming multipliers provided: $multipliersStr
-                Output Format Requirements:
-                - RISK LEVEL: [LOW / MEDIUM / HIGH] (Based on streak analysis)
-                - NEXT STRATEGIC BET: [PKR X.XX / SKIP] (Based on Martingale parameters against current balance of PKR $currentBalance)
-                - SAFE CASHOUT: [X.XXx / PASS]
-                - SHORT RATIONALE: [Provide a 1-sentence mathematical explanation of why this target was generated, e.g., "3 consecutive crashes under 1.2x suggest an imminent correction phase."]
-                Do not include markdown intros, greetings, or long conversational filler.
-            """.trimIndent()
-
-            val customKey = _geminiApiKey.value
-            val answer = GeminiClient.getStrategyAdvice(prompt, customKey)
             _aiAdviceText.value = answer
             _isLoadingAdvice.value = false
         }
