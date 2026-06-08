@@ -392,6 +392,7 @@ fun DashboardTab(
         )
     } else {
         CrashDashboardContent(
+            currentGame = currentGame,
             metrics = metrics,
             historyList = historyList,
             onResultLogged = onResultLogged,
@@ -449,7 +450,7 @@ fun DragonTigerDashboardContent(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Button(
-                            onClick = { mainActivity?.startFloatingCockpit() },
+                            onClick = { mainActivity?.startFloatingCockpit("DRAGON_TIGER", "VERTICAL") },
                             colors = ButtonDefaults.buttonColors(containerColor = RangoLimeGreen),
                             modifier = Modifier.weight(1f).height(38.dp),
                             shape = RoundedCornerShape(8.dp)
@@ -677,6 +678,7 @@ fun DragonTigerDashboardContent(
 
 @Composable
 fun CrashDashboardContent(
+    currentGame: String,
     metrics: LocalMetrics,
     historyList: List<CrashRound>,
     onResultLogged: (Double, Double, Double) -> Unit,
@@ -724,7 +726,12 @@ fun CrashDashboardContent(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Button(
-                            onClick = { mainActivity?.startFloatingCockpit() },
+                            onClick = { 
+                                mainActivity?.startFloatingCockpit(
+                                    game = currentGame, 
+                                    mode = if (currentGame == "AVIATOR") "AUTO" else "HORIZONTAL"
+                                ) 
+                            },
                             colors = ButtonDefaults.buttonColors(containerColor = RangoLimeGreen),
                             modifier = Modifier.weight(1f).height(38.dp),
                             shape = RoundedCornerShape(8.dp)

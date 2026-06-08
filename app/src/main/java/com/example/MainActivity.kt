@@ -101,7 +101,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    fun startFloatingCockpit() {
+    fun startFloatingCockpit(game: String = "RANGO", mode: String = "HORIZONTAL") {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
             val intent = Intent(
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
@@ -109,13 +109,17 @@ class MainActivity : ComponentActivity() {
             )
             overlayPermissionLauncher.launch(intent)
         } else {
-            val intent = Intent(this, OverlayService::class.java)
+            val intent = Intent(this, OverlayService::class.java).apply {
+                putExtra("EXTRA_GAME", game)
+                putExtra("EXTRA_MODE", mode)
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 startForegroundService(intent)
             } else {
                 startService(intent)
             }
-            Toast.makeText(this, "Rango Floating Bubble Activated!", Toast.LENGTH_SHORT).show()
+            val displayName = if (game == "DRAGON_TIGER") "Dragon Tiger" else if (game == "AVIATOR") "Aviator" else "Rango"
+            Toast.makeText(this, "$displayName Floating HUD Activated!", Toast.LENGTH_SHORT).show()
         }
     }
 

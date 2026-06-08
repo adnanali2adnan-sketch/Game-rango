@@ -28,6 +28,8 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -158,6 +160,10 @@ class OverlayService : Service() {
     private var lastGeminiCallTime = 0L
     private var isServiceDestroying = false
 
+    private var livePeakMultiplier = 1.00
+    private var isInsideFlight = false
+    private var lastDtOcrLogTime = 0L
+
     // Orientation dynamic viewport sizing
     private var currentWidth = 480
     private var currentHeight = 800
@@ -250,6 +256,11 @@ class OverlayService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent != null) {
+            val game = intent.getStringExtra("EXTRA_GAME")
+            val mode = intent.getStringExtra("EXTRA_MODE")
+            if (game != null && mode != null) {
+                updateHudModeAndGame(mode, game)
+            }
             when (intent.action) {
                 ACTION_START_PROJECTION -> {
                     val resultCode = intent.getIntExtra(EXTRA_PROJECTION_RESULT_CODE, -1)
@@ -716,7 +727,6 @@ class OverlayService : Service() {
         val logInfo by captureLogs.collectAsState()
         val isScanning by isOcrScanning.collectAsState()
         val isManualMode by isManualModeSelected.collectAsState()
-        val bottomExpanded by isBottomSectionExpanded.collectAsState()
         
         val overlayMode by currentHudMode.collectAsState()
         val currentGameVal by overlayGame.collectAsState()
@@ -734,7 +744,11 @@ class OverlayService : Service() {
 
         val density = androidx.compose.ui.platform.LocalDensity.current
         val expandedWidthDp = remember(density) {
-            val px = resources.displayMetrics.widthPixels * 0.46f
+            val px = resources.displayMetrics.widthPixels * 0.52f
+            with(density) { px.toDp() }
+        }
+        val expandedMaxHeightDp = remember(density) {
+            val px = resources.displayMetrics.heightPixels * 0.56f
             with(density) { px.toDp() }
         }
 
@@ -751,10 +765,10 @@ class OverlayService : Service() {
             else -> RangoDesertGold
         }
 
-        val overlayWidth = if (overlayMode == HudMode.VERTICAL) {
-            if (expanded) 130.dp else 36.dp
+        val overlayWidth = if (expanded) {
+            expandedWidthDp
         } else {
-            if (expanded) expandedWidthDp else 46.dp
+            if (overlayMode == HudMode.VERTICAL) 36.dp else 46.dp
         }
 
         Column(
@@ -770,7 +784,7 @@ class OverlayService : Service() {
                     updateWindowFocus(false)
                 }
                 .padding(
-                    if (expanded) PaddingValues(7.dp)
+                    if (expanded) PaddingValues(horizontal = 7.dp, vertical = 5.dp)
                     else {
                         if (overlayMode == HudMode.VERTICAL) PaddingValues(vertical = 10.dp, horizontal = 4.dp)
                         else PaddingValues(horizontal = 12.dp, vertical = 8.dp)
@@ -940,532 +954,183 @@ class OverlayService : Service() {
                     }
                 }
             } else {
-                // EXPANDED INTERACTIVE CONTROL PANEL
-                HorizontalDivider(color = RangoTealSky.copy(alpha = 0.5f), modifier = Modifier.padding(vertical = 3.dp))
+                // EXPANDED INTERACTIVE CONTROL PANEL (With Max Height & Scrolling Column wrapper)
+                val scrollState = rememberScrollState()
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = expandedMaxHeightDp)
+                        .verticalScroll(scrollState),
+                    verticalArrangement = Arrangement.spacedBy(1.dp)
+                ) {
+                    HorizontalDivider(color = RangoTealSky.copy(alpha = 0.5f), modifier = Modifier.padding(vertical = 1.dp))
 
-                if (currentGameVal == "DRAGON_TIGER") {
-                    val dtResult = DragonTigerAnalyzer.analyze(recentDtList)
-                    
-                    // Trend status banner
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(Color.Black.copy(alpha = 0.35f))
-                            .padding(vertical = 2.dp, horizontal = 4.dp),
-                        contentAlignment = Alignment.CenterStart
-                    ) {
-                        Text(
-                            text = "${dtResult.trendEmoji} ${dtResult.trendLabel}",
-                            color = when (dtResult.riskLevel) {
-                                "HIGH RISK" -> RangoDangerRed
-                                "MED RISK" -> RangoDesertGold
-                                else -> RangoLimeGreen
-                            },
-                            fontSize = 8.5.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                    }
-                    
-                    Spacer(modifier = Modifier.height(2.dp))
-                    
-                    // Prediction Grid or Row
-                    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(1.dp)
-                        ) {
-                            BoxMetricItem(
-                                title = "NEXT BET",
-                                value = dtResult.suggestedBet,
-                                bgColor = when {
-                                    dtResult.suggestedBet.contains("DRAGON") -> Color(0xFF1B5E20)
-                                    dtResult.suggestedBet.contains("TIGER") -> Color(0xFFBF360C)
-                                    else -> Color(0xFF37474F)
-                                },
-                                valueColor = Color.White,
-                                modifier = Modifier.weight(1.4f)
-                            )
-                            BoxMetricItem(
-                                title = "STREAK",
-                                value = dtResult.currentStreak,
-                                bgColor = Color(0xFF1565C0),
-                                valueColor = Color.White,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
+                    if (currentGameVal == "DRAGON_TIGER") {
+                        val dtResult = DragonTigerAnalyzer.analyze(recentDtList)
                         
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(1.dp)
-                        ) {
-                            BoxMetricItem(
-                                title = "DRAGON%",
-                                value = "${dtResult.dragonPct}%",
-                                bgColor = Color(0xFF2E7D32),
-                                valueColor = Color.White,
-                                modifier = Modifier.weight(1f)
-                            )
-                            BoxMetricItem(
-                                title = "TIGER%",
-                                value = "${dtResult.tigerPct}%",
-                                bgColor = Color(0xFFC62828),
-                                valueColor = Color.White,
-                                modifier = Modifier.weight(1f)
-                            )
-                            BoxMetricItem(
-                                title = "TIE%",
-                                value = "${dtResult.tiePct}%",
-                                bgColor = Color(0xFF6A1B9A),
-                                valueColor = Color.White,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    }
-                    
-                    if (dtResult.tieWarning) {
+                        // Trend status banner
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 2.dp)
                                 .clip(RoundedCornerShape(3.dp))
-                                .background(RangoDesertGold.copy(alpha = 0.9f))
-                                .padding(vertical = 1.5.dp),
-                            contentAlignment = Alignment.Center
+                                .background(Color.Black.copy(alpha = 0.35f))
+                                .padding(vertical = 1.dp, horizontal = 4.dp),
+                            contentAlignment = Alignment.CenterStart
                         ) {
                             Text(
-                                text = "⚠️ TIE OVERDUE WARNING",
-                                color = Color.Black,
-                                fontSize = 7.sp,
+                                text = "${dtResult.trendEmoji} ${dtResult.trendLabel}",
+                                color = when (dtResult.riskLevel) {
+                                    "HIGH RISK" -> RangoDangerRed
+                                    "MED RISK" -> RangoDesertGold
+                                    else -> RangoLimeGreen
+                                },
+                                fontSize = 8.5.sp,
                                 fontWeight = FontWeight.Black
                             )
                         }
-                    }
-                    
-                    Text(
-                        text = dtResult.advice,
-                        color = RangoTextWhite,
-                        fontSize = 6.5.sp,
-                        lineHeight = 8.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
-                    )
-
-                    HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 3.dp))
-                    
-                    // Manual entry buttons
-                    Text(
-                        text = "QUICK ENTRY RESULT",
-                        color = RangoTextMuted,
-                        fontSize = 7.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                addDragonTigerRoundResult("D")
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = RangoLimeGreen),
-                            shape = RoundedCornerShape(3.dp),
-                            contentPadding = PaddingValues(0.dp),
-                            modifier = Modifier.weight(1.1f).height(21.dp)
-                        ) {
-                            Text("🐉 DRAGON", color = Color.Black, fontSize = 7.sp, fontWeight = FontWeight.Black)
-                        }
-                        Button(
-                            onClick = {
-                                addDragonTigerRoundResult("X")
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8E24AA)),
-                            shape = RoundedCornerShape(3.dp),
-                            contentPadding = PaddingValues(0.dp),
-                            modifier = Modifier.weight(0.8f).height(21.dp)
-                        ) {
-                            Text("TIE", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Black)
-                        }
-                        Button(
-                            onClick = {
-                                addDragonTigerRoundResult("T")
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = RangoDangerRed),
-                            shape = RoundedCornerShape(3.dp),
-                            contentPadding = PaddingValues(0.dp),
-                            modifier = Modifier.weight(1.1f).height(21.dp)
-                        ) {
-                            Text("🐯 TIGER", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Black)
-                        }
-                    }
-
-                    HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 3.dp))
-
-                    // OCR/Start buttons for Dragon Tiger
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                if (isScanning) {
-                                    stopOcrScanning()
-                                } else {
-                                    captureLogs.value = "Launching Dashboard for Screen Auth..."
-                                    val launchIntent = Intent(this@OverlayService, MainActivity::class.java).apply {
-                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                                        putExtra("EXTRA_START_OCR_IMMEDIATELY", true)
-                                    }
-                                    startActivity(launchIntent)
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = if (isScanning) RangoDangerRed else RangoLimeGreen),
-                            shape = RoundedCornerShape(3.dp),
-                            contentPadding = PaddingValues(0.dp),
-                            modifier = Modifier.fillMaxWidth().height(18.dp)
-                        ) {
-                            Text(if (isScanning) "STOP OCR" else "AUTO OCR", color = Color.Black, fontSize = 7.sp, fontWeight = FontWeight.Black)
-                        }
-                    }
-                } else {
-
-                // Heading trend status banner dynamically styled
-                val headingText = when {
-                    metrics.streak == "HOT" -> "🚀 HOT MOMENTUM"
-                    metrics.streak == "COLD" -> "🚀 COLD REBOUND"
-                    else -> "🚀 STEADY TREND"
-                }
-                val headingColor = when {
-                    metrics.streak == "HOT" -> RangoDesertGold
-                    metrics.streak == "COLD" -> RangoLimeGreen
-                    else -> Color(0xFF00B0FF)
-                }
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(3.dp))
-                        .background(Color.Black.copy(alpha = 0.35f))
-                        .padding(vertical = 2.dp, horizontal = 4.dp),
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    Text(
-                        text = headingText,
-                        color = headingColor,
-                        fontSize = 9.5.sp,
-                        fontWeight = FontWeight.Black
-                    )
-                }
-
-                // Grid of 6 Performance and strategy prediction boxes
-                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(1.dp)
-                    ) {
-                        BoxMetricItem(
-                            title = "NEXT",
-                            value = "${String.format("%.2f", metrics.nextPrediction)}x",
-                            bgColor = Color(0xFF1B5E20),
-                            valueColor = Color.White,
-                            modifier = Modifier.weight(1f)
-                        )
-                        BoxMetricItem(
-                            title = "CASHOUT",
-                            value = "${String.format("%.2f", metrics.cashout)}x",
-                            bgColor = Color(0xFF004D40),
-                            valueColor = Color.White,
-                            modifier = Modifier.weight(1f)
-                        )
-                        BoxMetricItem(
-                            title = "MIN OUT",
-                            value = "${String.format("%.2f", metrics.minOut)}x",
-                            bgColor = Color(0xFFBF360C),
-                            valueColor = Color.White,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(1.dp)
-                    ) {
-                        BoxMetricItem(
-                            title = "BET",
-                            value = "${String.format("%.1f", metrics.betFactor)}x base",
-                            bgColor = Color(0xFF33691E),
-                            valueColor = Color.White,
-                            modifier = Modifier.weight(1f)
-                        )
-                        BoxMetricItem(
-                            title = "TREND",
-                            value = metrics.trend,
-                            bgColor = Color(0xFFE65100),
-                            valueColor = Color.White,
-                            modifier = Modifier.weight(1f)
-                        )
-                        BoxMetricItem(
-                            title = "STREAK",
-                            value = metrics.streak,
-                            bgColor = Color(0xFF37474F),
-                            valueColor = Color.White,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
-
-                // Real time analysis text summary
-                Text(
-                    text = metrics.description,
-                    color = RangoTextWhite,
-                    fontSize = 6.sp,
-                    lineHeight = 7.5.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 0.dp, vertical = 2.dp)
-                )
-
-                HorizontalDivider(color = RangoTealSky.copy(alpha = 0.5f), modifier = Modifier.padding(vertical = 3.dp))
-
-                // Wallet Balance & Adjustment Section
-                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            "BALANCE:",
-                            color = RangoTextMuted,
-                            fontSize = 7.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            "PKR ${String.format("%.2f", doubleBalance)}",
-                            color = Color.White,
-                            fontSize = 8.5.sp,
-                            fontWeight = FontWeight.Black,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
-                    
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(1.dp)
-                    ) {
-                        listOf(-50.0, -10.0, 10.0, 50.0).forEach { amount ->
-                            val label = if (amount > 0) "+${amount.toInt()}" else "${amount.toInt()}"
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(3.dp))
-                                    .background(RangoHorizon)
-                                    .clickable {
-                                        val current = walletBalanceInput.value.toDoubleOrNull() ?: 280.89
-                                        val adjusted = (current + amount).coerceAtLeast(0.0)
-                                        walletBalanceInput.value = String.format("%.2f", adjusted)
-                                    }
-                                    .padding(vertical = 1.dp),
-                                contentAlignment = Alignment.Center
+                        
+                        Spacer(modifier = Modifier.height(1.dp))
+                        
+                        // Prediction Grid or Row
+                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(1.dp)
                             ) {
-                                Text(
-                                    text = label,
-                                    color = if (amount > 0) RangoLimeGreen else RangoDangerRed,
-                                    fontSize = 6.5.sp,
-                                    fontWeight = FontWeight.ExtraBold
+                                BoxMetricItem(
+                                    title = "NEXT BET",
+                                    value = dtResult.suggestedBet,
+                                    bgColor = when {
+                                        dtResult.suggestedBet.contains("DRAGON") -> Color(0xFF1B5E20)
+                                        dtResult.suggestedBet.contains("TIGER") -> Color(0xFFBF360C)
+                                        else -> Color(0xFF37474F)
+                                    },
+                                    valueColor = Color.White,
+                                    modifier = Modifier.weight(1.4f)
+                                )
+                                BoxMetricItem(
+                                    title = "STREAK",
+                                    value = dtResult.currentStreak,
+                                    bgColor = Color(0xFF1565C0),
+                                    valueColor = Color.White,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(1.dp)
+                            ) {
+                                BoxMetricItem(
+                                    title = "DRAGON%",
+                                    value = "${dtResult.dragonPct}%",
+                                    bgColor = Color(0xFF2E7D32),
+                                    valueColor = Color.White,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                BoxMetricItem(
+                                    title = "TIGER%",
+                                    value = "${dtResult.tigerPct}%",
+                                    bgColor = Color(0xFFC62828),
+                                    valueColor = Color.White,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                BoxMetricItem(
+                                    title = "TIE%",
+                                    value = "${dtResult.tiePct}%",
+                                    bgColor = Color(0xFF6A1B9A),
+                                    valueColor = Color.White,
+                                    modifier = Modifier.weight(1f)
                                 )
                             }
                         }
-                    }
-                }
-
-                HorizontalDivider(color = RangoTealSky.copy(alpha = 0.5f), modifier = Modifier.padding(vertical = 3.dp))
-
-                // Risk & Last Multipliers Info Summary
-                val riskName = when (metrics.streak) {
-                    "HOT" -> "HIGH RISK | Skip"
-                    "COLD" -> "LOW RISK | Bet PKR ${df.format(baseBet * metrics.betFactor)}"
-                    else -> "MED RISK | Bet PKR ${df.format(baseBet * metrics.betFactor)}"
-                }
-
-                Column(verticalArrangement = Arrangement.spacedBy(0.5.dp)) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("RISK:", color = RangoTextMuted, fontSize = 7.sp, fontWeight = FontWeight.Bold)
-                        Text(riskName, color = riskColor, fontSize = 7.sp, fontWeight = FontWeight.Black)
-                    }
-
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("LAST:", color = RangoTextMuted, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                        
+                        if (dtResult.tieWarning) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 1.dp)
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(RangoDesertGold.copy(alpha = 0.9f))
+                                    .padding(vertical = 1.5.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "⚠️ TIE OVERDUE WARNING",
+                                    color = Color.Black,
+                                    fontSize = 7.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                        }
+                        
                         Text(
-                            text = if (historyList.isEmpty()) "No rounds captured" else historyList.take(4).joinToString("  ") { df.format(it) },
-                            color = Color.White,
-                            fontSize = 7.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace,
-                            maxLines = 1,
-                            softWrap = false
+                            text = dtResult.advice,
+                            color = RangoTextWhite,
+                            fontSize = 6.5.sp,
+                            lineHeight = 8.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)
                         )
-                    }
-                }
 
-                // LIVE SCANNER tabbed section (Auto OCR and Manual)
-                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                    Text(
-                        "⚡ LIVE SCANNER",
-                        color = RangoLimeGreen,
-                        fontSize = 7.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                    
-                    // Tabs Row exactly like screenshot mockup
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(1.dp)
-                    ) {
-                        // AUTO OCR TAB
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(if (!isManualMode) RangoLimeGreen else RangoTealSky.copy(alpha = 0.2f))
-                                .clickable { 
-                                    focusManager.clearFocus()
-                                    isManualModeSelected.value = false 
-                                }
-                                .padding(vertical = 1.5.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                "⚡ AUTO OCR",
-                                color = if (!isManualMode) Color.Black else RangoTextWhite,
-                                fontSize = 6.5.sp,
-                                fontWeight = FontWeight.Black
-                              )
-                        }
-
-                        // MANUAL TAB
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(if (isManualMode) RangoLimeGreen else RangoTealSky.copy(alpha = 0.2f))
-                                .clickable { 
-                                    focusManager.clearFocus()
-                                    isManualModeSelected.value = true 
-                                }
-                                .padding(vertical = 1.5.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                "✏️ MANUAL",
-                                color = if (isManualMode) Color.Black else RangoTextWhite,
-                                fontSize = 6.5.sp,
-                                fontWeight = FontWeight.Black
-                            )
-                        }
-                    }
-
-                    if (isManualMode) {
-                        // MANUAL INPUT SUBSECTION
+                        HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 1.dp))
+                        
+                        // Manual entry buttons
                         Text(
-                            "Enter multiplier:",
+                            text = "QUICK ENTRY RESULT",
                             color = RangoTextMuted,
                             fontSize = 7.sp,
                             fontWeight = FontWeight.Bold
                         )
                         
-                        val inputText by manualMultiplierInput.collectAsState()
-                        
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(18.dp)
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(Color.Black.copy(alpha = 0.4f))
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) {
-                                    focusRequester.requestFocus()
-                                },
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            BasicTextField(
-                                value = inputText,
-                                onValueChange = { manualMultiplierInput.value = it },
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                textStyle = LocalTextStyle.current.copy(
-                                    color = RangoTextWhite,
-                                    fontSize = 10.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    textAlign = TextAlign.Center
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .focusRequester(focusRequester)
-                                    .onFocusChanged { focusState ->
-                                        updateWindowFocus(focusState.isFocused)
-                                    }
-                                    .onKeyEvent { keyEvent ->
-                                        if (keyEvent.key == Key.Back && keyEvent.type == KeyEventType.KeyUp) {
-                                            focusManager.clearFocus()
-                                            updateWindowFocus(false)
-                                            true
-                                        } else {
-                                            false
-                                        }
-                                    },
-                                decorationBox = { innerTextField ->
-                                    Box(
-                                        modifier = Modifier.fillMaxSize().padding(3.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        if (inputText.isEmpty()) {
-                                            Text(
-                                                "e.g. 1.85",
-                                                color = RangoTextMuted,
-                                                fontSize = 10.sp,
-                                                fontFamily = FontFamily.Monospace,
-                                                textAlign = TextAlign.Center
-                                            )
-                                        }
-                                        innerTextField()
-                                    }
-                                }
-                            )
-                        }
-                        
-                        Button(
-                            onClick = {
-                                val multiplierDouble = inputText.toDoubleOrNull()
-                                if (multiplierDouble != null && multiplierDouble >= 1.0 && multiplierDouble <= 1000.0) {
-                                    manualMultiplierInput.value = ""
-                                    // Clear input focus to dismiss keyboard
-                                    focusManager.clearFocus()
-                                    updateWindowFocus(false)
-                                    // Add value and FORCE Gemini prediction (bypassing rate limit)
-                                    checkAndCommitDetectedValue(multiplierDouble, forceGemini = true)
-                                    captureLogs.value = "Manual added: ${multiplierDouble}x."
-                                } else {
-                                    captureLogs.value = "Error: (1.0 - 1000)!"
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5)),
-                            shape = RoundedCornerShape(3.dp),
-                            contentPadding = PaddingValues(vertical = 0.dp),
-                            modifier = Modifier.fillMaxWidth().height(18.dp)
-                        ) {
-                            Text("✔️ SUBMIT & PREDICT", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.ExtraBold)
-                        }
-                    } else {
-                        // AUTO OCR SCAN CONTROL SUBSECTION
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
                             Button(
-                                onClick = { 
+                                onClick = {
+                                    addDragonTigerRoundResult("D")
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = RangoLimeGreen),
+                                shape = RoundedCornerShape(3.dp),
+                                contentPadding = PaddingValues(0.dp),
+                                modifier = Modifier.weight(1.1f).height(21.dp)
+                            ) {
+                                Text("🐉 DRAGON", color = Color.Black, fontSize = 7.sp, fontWeight = FontWeight.Black)
+                            }
+                            Button(
+                                onClick = {
+                                    addDragonTigerRoundResult("X")
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8E24AA)),
+                                shape = RoundedCornerShape(3.dp),
+                                contentPadding = PaddingValues(0.dp),
+                                modifier = Modifier.weight(0.8f).height(21.dp)
+                            ) {
+                                Text("TIE", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Black)
+                            }
+                            Button(
+                                onClick = {
+                                    addDragonTigerRoundResult("T")
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = RangoDangerRed),
+                                shape = RoundedCornerShape(3.dp),
+                                contentPadding = PaddingValues(0.dp),
+                                modifier = Modifier.weight(1.1f).height(21.dp)
+                            ) {
+                                Text("🐯 TIGER", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Black)
+                            }
+                        }
+
+                        HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 1.dp))
+
+                        // OCR/Start buttons for Dragon Tiger
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Button(
+                                onClick = {
                                     if (isScanning) {
                                         stopOcrScanning()
                                     } else {
@@ -1477,69 +1142,365 @@ class OverlayService : Service() {
                                         startActivity(launchIntent)
                                     }
                                 },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (isScanning) RangoDangerRed else RangoLimeGreen
-                                ),
+                                colors = ButtonDefaults.buttonColors(containerColor = if (isScanning) RangoDangerRed else RangoLimeGreen),
                                 shape = RoundedCornerShape(3.dp),
-                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                                contentPadding = PaddingValues(0.dp),
                                 modifier = Modifier.fillMaxWidth().height(18.dp)
                             ) {
-                                Text(
-                                    if (isScanning) "STOP SCAN" else "START AUTO OCR",
-                                    color = Color.Black,
-                                    fontSize = 7.sp,
-                                    fontWeight = FontWeight.Black
+                                Text(if (isScanning) "STOP OCR" else "AUTO OCR", color = Color.Black, fontSize = 7.sp, fontWeight = FontWeight.Black)
+                            }
+                        }
+                    } else {
+                        // Heading trend status banner dynamically styled
+                        val headingText = when {
+                            metrics.streak == "HOT" -> "🚀 HOT MOMENTUM"
+                            metrics.streak == "COLD" -> "🚀 COLD REBOUND"
+                            else -> "🚀 STEADY TREND"
+                        }
+                        val headingColor = when {
+                            metrics.streak == "HOT" -> RangoDesertGold
+                            metrics.streak == "COLD" -> RangoLimeGreen
+                            else -> Color(0xFF00B0FF)
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(Color.Black.copy(alpha = 0.35f))
+                                .padding(vertical = 1.dp, horizontal = 4.dp),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            Text(
+                                text = headingText,
+                                color = headingColor,
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+
+                        // Grid of 6 Performance and strategy prediction boxes
+                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(1.dp)
+                            ) {
+                                BoxMetricItem(
+                                    title = "NEXT",
+                                    value = "${String.format("%.2f", metrics.nextPrediction)}x",
+                                    bgColor = Color(0xFF1B5E20),
+                                    valueColor = Color.White,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                BoxMetricItem(
+                                    title = "CASHOUT",
+                                    value = "${String.format("%.2f", metrics.cashout)}x",
+                                    bgColor = Color(0xFF004D40),
+                                    valueColor = Color.White,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                BoxMetricItem(
+                                    title = "MIN OUT",
+                                    value = "${String.format("%.2f", metrics.minOut)}x",
+                                    bgColor = Color(0xFFBF360C),
+                                    valueColor = Color.White,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(1.dp)
+                            ) {
+                                BoxMetricItem(
+                                    title = "BET",
+                                    value = "${String.format("%.1f", metrics.betFactor)}x base",
+                                    bgColor = Color(0xFF33691E),
+                                    valueColor = Color.White,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                BoxMetricItem(
+                                    title = "TREND",
+                                    value = metrics.trend,
+                                    bgColor = Color(0xFFE65100),
+                                    valueColor = Color.White,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                BoxMetricItem(
+                                    title = "STREAK",
+                                    value = metrics.streak,
+                                    bgColor = Color(0xFF37474F),
+                                    valueColor = Color.White,
+                                    modifier = Modifier.weight(1f)
                                 )
                             }
                         }
 
-                        // Scan Logs UI Box
+                        // Real time analysis text summary
                         Text(
-                            text = logInfo,
-                            color = RangoTextMuted,
-                            fontSize = 6.5.sp,
-                            lineHeight = 8.sp,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Color.Black.copy(alpha = 0.4f))
-                                .padding(1.5.dp)
+                            text = metrics.description,
+                            color = RangoTextWhite,
+                            fontSize = 6.sp,
+                            lineHeight = 7.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 0.dp, vertical = 1.dp)
                         )
-                    }
-                }
-                } // Ends Rango/Aviator else block
 
-                HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 3.dp))
+                        HorizontalDivider(color = RangoTealSky.copy(alpha = 0.5f), modifier = Modifier.padding(vertical = 1.dp))
 
-                // Toggle Button for bottom AI & Lobby Ribbon - keeps the window height extremely small!
-                Button(
-                    onClick = { 
-                        focusManager.clearFocus()
-                        updateWindowFocus(false)
-                        isBottomSectionExpanded.value = !bottomExpanded 
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (bottomExpanded) RangoTealSky.copy(alpha = 0.3f) else RangoDesertGold
-                    ),
-                    shape = RoundedCornerShape(3.dp),
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
-                    modifier = Modifier.fillMaxWidth().height(18.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = if (bottomExpanded) "🔮 HIDE AI & LOBBY 🔼" else "🔮 SHOW AI & LOBBY 🔽",
-                            color = if (bottomExpanded) RangoTextWhite else Color.Black,
-                            fontSize = 7.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                    }
-                }
+                        // Wallet Balance Section (Without balance buttons row)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "BALANCE:",
+                                color = RangoTextMuted,
+                                fontSize = 7.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                "PKR ${String.format("%.2f", doubleBalance)}",
+                                color = Color.White,
+                                fontSize = 8.5.sp,
+                                fontWeight = FontWeight.Black,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
 
-                if (bottomExpanded) {
+                        HorizontalDivider(color = RangoTealSky.copy(alpha = 0.5f), modifier = Modifier.padding(vertical = 1.dp))
+
+                        // Risk & Last Multipliers Info Summary
+                        val riskName = when (metrics.streak) {
+                            "HOT" -> "HIGH RISK | Skip"
+                            "COLD" -> "LOW RISK | Bet PKR ${df.format(baseBet * metrics.betFactor)}"
+                            else -> "MED RISK | Bet PKR ${df.format(baseBet * metrics.betFactor)}"
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(0.5.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("RISK:", color = RangoTextMuted, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                                Text(riskName, color = riskColor, fontSize = 7.sp, fontWeight = FontWeight.Black)
+                            }
+
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("LAST:", color = RangoTextMuted, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = if (historyList.isEmpty()) "No rounds captured" else historyList.take(4).joinToString("  ") { df.format(it) },
+                                    color = Color.White,
+                                    fontSize = 7.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+
+                        HorizontalDivider(color = RangoTealSky.copy(alpha = 0.5f), modifier = Modifier.padding(vertical = 1.dp))
+
+                        // LIVE SCANNER tabbed section (Auto OCR and Manual)
+                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            Text(
+                                "⚡ LIVE SCANNER",
+                                color = RangoLimeGreen,
+                                fontSize = 7.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            
+                            // Tabs Row exactly like screenshot mockup
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(1.dp)
+                            ) {
+                                // AUTO OCR TAB
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(if (!isManualMode) RangoLimeGreen else RangoTealSky.copy(alpha = 0.2f))
+                                        .clickable { 
+                                            focusManager.clearFocus()
+                                            isManualModeSelected.value = false 
+                                        }
+                                        .padding(vertical = 1.5.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        "⚡ AUTO OCR",
+                                        color = if (!isManualMode) Color.Black else RangoTextWhite,
+                                        fontSize = 6.5.sp,
+                                        fontWeight = FontWeight.Black
+                                      )
+                                }
+
+                                // MANUAL TAB
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(if (isManualMode) RangoLimeGreen else RangoTealSky.copy(alpha = 0.2f))
+                                        .clickable { 
+                                            focusManager.clearFocus()
+                                            isManualModeSelected.value = true 
+                                        }
+                                        .padding(vertical = 1.5.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        "✏️ MANUAL",
+                                        color = if (isManualMode) Color.Black else RangoTextWhite,
+                                        fontSize = 6.5.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                }
+                            }
+
+                            if (isManualMode) {
+                                // MANUAL INPUT SUBSECTION
+                                Text(
+                                    "Enter multiplier:",
+                                    color = RangoTextMuted,
+                                    fontSize = 7.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                
+                                val inputText by manualMultiplierInput.collectAsState()
+                                
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(18.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(Color.Black.copy(alpha = 0.4f))
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null
+                                        ) {
+                                            focusRequester.requestFocus()
+                                        },
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    BasicTextField(
+                                        value = inputText,
+                                        onValueChange = { manualMultiplierInput.value = it },
+                                        singleLine = true,
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                        textStyle = LocalTextStyle.current.copy(
+                                            color = RangoTextWhite,
+                                            fontSize = 10.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            textAlign = TextAlign.Center
+                                        ),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .focusRequester(focusRequester)
+                                            .onFocusChanged { focusState ->
+                                                updateWindowFocus(focusState.isFocused)
+                                            }
+                                            .onKeyEvent { keyEvent ->
+                                                if (keyEvent.key == Key.Back && keyEvent.type == KeyEventType.KeyUp) {
+                                                    focusManager.clearFocus()
+                                                    updateWindowFocus(false)
+                                                    true
+                                                } else {
+                                                    false
+                                                }
+                                            },
+                                        decorationBox = { innerTextField ->
+                                            Box(
+                                                modifier = Modifier.fillMaxSize().padding(3.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                if (inputText.isEmpty()) {
+                                                    Text(
+                                                        "e.g. 1.85",
+                                                        color = RangoTextMuted,
+                                                        fontSize = 10.sp,
+                                                        fontFamily = FontFamily.Monospace,
+                                                        textAlign = TextAlign.Center
+                                                    )
+                                                }
+                                                innerTextField()
+                                            }
+                                        }
+                                    )
+                                }
+                                
+                                Button(
+                                    onClick = {
+                                        val multiplierDouble = inputText.toDoubleOrNull()
+                                        if (multiplierDouble != null && multiplierDouble >= 1.0 && multiplierDouble <= 1000.0) {
+                                            manualMultiplierInput.value = ""
+                                            focusManager.clearFocus()
+                                            updateWindowFocus(false)
+                                            checkAndCommitDetectedValue(multiplierDouble, forceGemini = true)
+                                            captureLogs.value = "Manual added: ${multiplierDouble}x."
+                                        } else {
+                                            captureLogs.value = "Error: (1.0 - 1000)!"
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5)),
+                                    shape = RoundedCornerShape(3.dp),
+                                    contentPadding = PaddingValues(vertical = 0.dp),
+                                    modifier = Modifier.fillMaxWidth().height(18.dp)
+                                ) {
+                                    Text("✔️ SUBMIT & PREDICT", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.ExtraBold)
+                                }
+                            } else {
+                                // AUTO OCR SCAN CONTROL SUBSECTION
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Button(
+                                        onClick = { 
+                                            if (isScanning) {
+                                                stopOcrScanning()
+                                            } else {
+                                                captureLogs.value = "Launching Dashboard for Screen Auth..."
+                                                val launchIntent = Intent(this@OverlayService, MainActivity::class.java).apply {
+                                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                                                    putExtra("EXTRA_START_OCR_IMMEDIATELY", true)
+                                                }
+                                                startActivity(launchIntent)
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (isScanning) RangoDangerRed else RangoLimeGreen
+                                        ),
+                                        shape = RoundedCornerShape(3.dp),
+                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                                        modifier = Modifier.fillMaxWidth().height(18.dp)
+                                    ) {
+                                        Text(
+                                            if (isScanning) "STOP SCAN" else "START AUTO OCR",
+                                            color = Color.Black,
+                                            fontSize = 7.sp,
+                                            fontWeight = FontWeight.Black
+                                        )
+                                    }
+                                }
+
+                                // Scan Logs UI Box
+                                Text(
+                                    text = logInfo,
+                                    color = RangoTextMuted,
+                                    fontSize = 6.5.sp,
+                                    lineHeight = 8.sp,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color.Black.copy(alpha = 0.4f))
+                                        .padding(1.5.dp)
+                                )
+                            }
+                        }
+                    } // Ends Rango/Aviator else block
+
+                    HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 1.dp))
+
                     // Dynamic Gemini Cockpit Live Performance Panel
                     val liveAdvice by geminiAiAdvice.collectAsState()
                     val liveLoading by isGeminiLoading.collectAsState()
@@ -1600,44 +1561,6 @@ class OverlayService : Service() {
                                     fontFamily = FontFamily.Monospace,
                                     modifier = Modifier.padding(top = 1.5.dp)
                                 )
-                            }
-                        }
-                    }
-
-                    // Ribbon of recent rounds in overlay
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("LOBBY RIBBON", color = RangoTextMuted, fontSize = 8.sp, fontWeight = FontWeight.Bold)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(3.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            historyList.take(4).forEach { mult ->
-                                Box(
-                                    modifier = Modifier
-                                        .width(31.dp)
-                                        .clip(RoundedCornerShape(3.dp))
-                                        .background(
-                                            when {
-                                                mult >= 3.0 -> Color(0xFF8C34FF)
-                                                mult >= 1.5 -> RangoLimeGreen
-                                                else -> RangoTealSky
-                                            }
-                                        )
-                                        .padding(vertical = 1.5.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "${mult}x",
-                                        color = Color.White,
-                                        fontSize = 7.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = FontFamily.Monospace,
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        textAlign = TextAlign.Center
-                                    )
-                                }
                             }
                         }
                     }
@@ -1788,6 +1711,8 @@ class OverlayService : Service() {
                                         
                                         recognizer.process(image)
                                             .addOnSuccessListener { visionText ->
+                                                processOcrSuccess(visionText)
+                                                if (true) return@addOnSuccessListener
                                                 val text = visionText.text
                                                 val textLower = text.lowercase()
                                                 val isCrashEnded = textLower.contains("flew") || 
@@ -1975,6 +1900,100 @@ class OverlayService : Service() {
                 profitLoss = profit
             )
             repository.insert(round)
+        }
+    }
+
+    private fun processOcrSuccess(visionText: com.google.mlkit.vision.text.Text) {
+        if (overlayGame.value == "DRAGON_TIGER") {
+            val textLower = visionText.text.lowercase()
+            var dtResultFound: String? = null
+            when {
+                textLower.contains("dragon wins") || textLower.contains("dragon winner") || textLower.contains("dragon wins!") || textLower.contains("dragon won") -> {
+                    dtResultFound = "D"
+                }
+                textLower.contains("tiger wins") || textLower.contains("tiger winner") || textLower.contains("tiger wins!") || textLower.contains("tiger won") -> {
+                    dtResultFound = "T"
+                }
+                textLower.contains("tie wins") || textLower.contains("tie winner") || textLower.contains("tie wins!") -> {
+                    dtResultFound = "X"
+                }
+                textLower.contains("dragon") && (textLower.contains("win") || textLower.contains("won")) -> {
+                    dtResultFound = "D"
+                }
+                textLower.contains("tiger") && (textLower.contains("win") || textLower.contains("won")) -> {
+                    dtResultFound = "T"
+                }
+            }
+            
+            if (dtResultFound != null) {
+                serviceScope.launch(Dispatchers.Main) {
+                    val now = System.currentTimeMillis()
+                    if (now - lastDtOcrLogTime > 6000L) {
+                        lastDtOcrLogTime = now
+                        addDragonTigerRoundResult(dtResultFound)
+                    }
+                }
+            }
+        } else {
+            // Parse Crash/Aviator Game decimal multipliers
+            val decimalRegex = Regex("""\b(\d+([\.,]\d{1,2})?)\s*x?\b""", RegexOption.IGNORE_CASE)
+            var bestBlock: com.google.mlkit.vision.text.Text.TextBlock? = null
+            var maxArea = 0
+            for (block in visionText.textBlocks) {
+                val blockText = block.text
+                if (decimalRegex.containsMatchIn(blockText)) {
+                    val box = block.boundingBox
+                    if (box != null) {
+                        val area = box.width() * box.height()
+                        if (area > maxArea) {
+                            maxArea = area
+                            bestBlock = block
+                        }
+                    }
+                }
+            }
+
+            val targetText = bestBlock?.text ?: visionText.text
+            val matches = decimalRegex.findAll(targetText).toList()
+
+            val textLower = visionText.text.lowercase()
+            val isCrashEnded = textLower.contains("flew") || 
+                    textLower.contains("away") || 
+                    textLower.contains("burst") || 
+                    textLower.contains("crash") || 
+                    textLower.contains("crashed")
+
+            if (matches.isNotEmpty()) {
+                val matchedStr = matches.first().groupValues[1].replace(',', '.')
+                val matchedVal = matchedStr.toDoubleOrNull()
+
+                if (matchedVal != null && matchedVal >= 1.0 && matchedVal < 1000.0) {
+                    serviceScope.launch(Dispatchers.Main) {
+                        latestScannedMultiplier.value = String.format("%.2f", matchedVal)
+                        val previousPeak = livePeakMultiplier
+
+                        if (matchedVal > previousPeak) {
+                            livePeakMultiplier = matchedVal
+                            isInsideFlight = true
+                            captureLogs.value = "Reading live... Current: ${matchedVal}x"
+                        } else if (isInsideFlight && (matchedVal <= 1.05 || matchedVal < previousPeak - 0.15)) {
+                            // Sudden drop detected -> previous peak committed safely!
+                            captureLogs.value = "CRASH DETECTED (Drop): ${previousPeak}x"
+                            checkAndCommitDetectedValue(previousPeak)
+                            livePeakMultiplier = matchedVal
+                            isInsideFlight = (matchedVal > 1.02)
+                        } else if (isCrashEnded) {
+                            val commitVal = if (previousPeak > matchedVal) previousPeak else matchedVal
+                            captureLogs.value = "CRASH DETECTED (Keyword): ${commitVal}x"
+                            checkAndCommitDetectedValue(commitVal)
+                            livePeakMultiplier = 1.00
+                            isInsideFlight = false
+                        } else {
+                            captureLogs.value = "Reading live... Current: ${matchedVal}x"
+                        }
+                    }
+                }
+            }
         }
     }
 }
