@@ -25,24 +25,25 @@ object DragonTigerAnalyzer {
         val recent = rounds.take(20)
         val dCount = recent.count { it.result == "D" }
         val tCount = recent.count { it.result == "T" }
-        val tieCount = recent.count { it.result == "TIE" }
+        val tieCount = recent.count { it.result == "TIE" || it.result == "X" || it.result == "P" }
         val total = recent.size
         
         val dragonPct = (dCount * 100 / total)
         val tigerPct = (tCount * 100 / total)
         val tiePct = (tieCount * 100 / total)
         
-        // Detect current streak
+        // Detect current streak (ignoring ties)
         var streakSide = recent.first().result
         var streakCount = 0
         for (r in recent) {
-            if (r.result == streakSide && r.result != "TIE") streakCount++
+            if (r.result == streakSide && r.result != "TIE" && r.result != "X" && r.result != "P") streakCount++
+            else if (r.result == "TIE" || r.result == "X" || r.result == "P") continue
             else break
         }
         
         // Detect alternating pattern (D,T,D,T or T,D,T,D)
-        val isAlternating = recent.take(6).zipWithNext().all { (a, b) ->
-            a.result != b.result && a.result != "TIE" && b.result != "TIE"
+        val isAlternating = recent.filter { it.result != "TIE" && it.result != "X" && it.result != "P" }.take(6).zipWithNext().all { (a, b) ->
+            a.result != b.result
         }
         
         // Hot side
@@ -52,9 +53,10 @@ object DragonTigerAnalyzer {
             else -> "BALANCED"
         }
         
-        // Tie warning: if no tie in last 15+ rounds, tie is overdue
-        val roundsSinceTie = rounds.indexOfFirst { it.result == "TIE" }.let { if (it == -1) rounds.size else it }
+        // Tie warning: if no tie in last 12+ rounds, tie is overdue
+        val roundsSinceTie = rounds.indexOfFirst { it.result == "TIE" || it.result == "X" || it.result == "P" }.let { if (it == -1) rounds.size else it }
         val tieWarning = roundsSinceTie >= 12
+        val suggestSkipForTie = roundsSinceTie in 12..14
         
         // Trend label
         val trendLabel = when {
@@ -66,9 +68,9 @@ object DragonTigerAnalyzer {
             else -> "BALANCED"
         }
         
-        // Prediction
+        // Prediction (Only skip/TIE-possible on rounds 12, 13, 14. After that, resume predicting regular sides)
         val predictedNext = when {
-            tieWarning -> "TIE POSSIBLE"
+            suggestSkipForTie -> "TIE POSSIBLE"
             streakCount >= 5 -> if (streakSide == "D") "TIGER" else "DRAGON" // streak break likely
             isAlternating -> if (recent.first().result == "D") "TIGER" else "DRAGON"
             hotSide == "DRAGON" -> "DRAGON"
@@ -78,7 +80,7 @@ object DragonTigerAnalyzer {
         
         // Suggested bet
         val suggestedBet = when {
-            tieWarning -> "SKIP (TIE DUE)"
+            suggestSkipForTie -> "SKIP (TIE DUE)"
             predictedNext == "UNCERTAIN" -> "WAIT"
             else -> "BET $predictedNext"
         }
@@ -90,7 +92,7 @@ object DragonTigerAnalyzer {
             else -> 45
         }
         
-        val advice = buildAdvice(trendLabel, streakCount, streakSide, predictedNext, tieWarning, hotSide)
+        val advice = buildAdvice(trendLabel, streakCount, streakSide, predictedNext, tieWarning, hotSide, roundsSinceTie)
         
         return DTResult(
             trendLabel = trendLabel,
@@ -110,12 +112,13 @@ object DragonTigerAnalyzer {
         )
     }
     
-    private fun buildAdvice(trend: String, streak: Int, side: String, next: String, tie: Boolean, hot: String): String {
+    private fun buildAdvice(trend: String, streak: Int, side: String, next: String, tie: Boolean, hot: String, roundsSinceTie: Int): String {
         return when {
-            tie -> "Tie overdue. Consider skipping or small tie bet."
+            roundsSinceTie in 12..14 -> "Tie overdue. Consider skipping or small tie bet."
             streak >= 5 -> "$side streak at $streak. Reversal likely. Bet opposite."
             trend == "ALTERNATING" -> "Alternating pattern. Bet opposite of last result."
             hot != "BALANCED" -> "$hot side dominant. Follow the trend."
+            tie -> "Tie overdue. Consider a small tie protection bet alongside."
             else -> "No clear pattern. Wait for streak to form."
         }
     }
@@ -134,5 +137,5 @@ object DragonTigerAnalyzer {
         if (rounds.isEmpty()) 0.0 else rounds.count { it.result == "T" }.toDouble() / rounds.size * 100
     
     fun getTieRate(rounds: List<DragonTigerRound>): Double =
-        if (rounds.isEmpty()) 0.0 else rounds.count { it.result == "TIE" }.toDouble() / rounds.size * 100
+        if (rounds.isEmpty()) 0.0 else rounds.count { it.result == "TIE" || it.result == "X" || it.result == "P" }.toDouble() / rounds.size * 100
 }

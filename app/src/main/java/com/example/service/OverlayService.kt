@@ -408,7 +408,12 @@ class OverlayService : Service() {
                             if (lp != null) {
                                 val dx = event.rawX - initialTouchX
                                 val dy = event.rawY - initialTouchY
-                                lp.x = initialX + dx.toInt()
+                                
+                                val hasEndGravity = (lp.gravity and Gravity.HORIZONTAL_GRAVITY_MASK) == Gravity.END || 
+                                                    (lp.gravity and Gravity.HORIZONTAL_GRAVITY_MASK) == Gravity.RIGHT
+                                val signX = if (hasEndGravity) -1 else 1
+
+                                lp.x = initialX + signX * dx.toInt()
                                 lp.y = initialY + dy.toInt()
                                 try {
                                     windowManager.updateViewLayout(this, lp)
@@ -744,12 +749,12 @@ class OverlayService : Service() {
 
         val density = androidx.compose.ui.platform.LocalDensity.current
         val expandedWidthDp = remember(density) {
-            val px = resources.displayMetrics.widthPixels * 0.52f
-            with(density) { px.toDp() }
+            val px = resources.displayMetrics.widthPixels * 0.42f
+            with(density) { px.toDp() }.coerceIn(135.dp, 165.dp)
         }
         val expandedMaxHeightDp = remember(density) {
-            val px = resources.displayMetrics.heightPixels * 0.56f
-            with(density) { px.toDp() }
+            val px = resources.displayMetrics.heightPixels * 0.52f
+            with(density) { px.toDp() }.coerceIn(280.dp, 400.dp)
         }
 
         // Local Calculations
@@ -784,7 +789,7 @@ class OverlayService : Service() {
                     updateWindowFocus(false)
                 }
                 .padding(
-                    if (expanded) PaddingValues(horizontal = 7.dp, vertical = 5.dp)
+                    if (expanded) PaddingValues(horizontal = 5.dp, vertical = 4.dp)
                     else {
                         if (overlayMode == HudMode.VERTICAL) PaddingValues(vertical = 10.dp, horizontal = 4.dp)
                         else PaddingValues(horizontal = 12.dp, vertical = 8.dp)
@@ -1073,13 +1078,69 @@ class OverlayService : Service() {
                             modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)
                         )
 
+                        // LAST ROUNDS Row for Dragon Tiger HUD
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(1.dp),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 0.5.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "LAST ROUNDS:",
+                                    color = RangoTextMuted,
+                                    fontSize = 6.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                if (recentDtList.isEmpty()) {
+                                    Text(
+                                        text = "None captured",
+                                        color = Color.Gray,
+                                        fontSize = 6.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                } else {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(1.5.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        recentDtList.take(8).forEach { round ->
+                                            val (letter, color) = when (round.result) {
+                                                "D" -> "D" to Color(0xFF00B0FF) // Neon Blue for Dragon
+                                                "T" -> "T" to RangoDangerRed   // Red for Tiger
+                                                "X", "TIE", "P" -> "P" to Color(0xFFE040FB) // "tie ke p" -> Pink/purple P for Tie
+                                                else -> round.result to Color.White
+                                            }
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(8.5.dp)
+                                                    .clip(RoundedCornerShape(1.5.dp))
+                                                    .background(color.copy(alpha = 0.15f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = letter,
+                                                    color = color,
+                                                    fontSize = 6.sp,
+                                                    fontWeight = FontWeight.Black,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 1.dp))
                         
                         // Manual entry buttons
                         Text(
                             text = "QUICK ENTRY RESULT",
                             color = RangoTextMuted,
-                            fontSize = 7.sp,
+                            fontSize = 6.5.sp,
                             fontWeight = FontWeight.Bold
                         )
                         
@@ -1094,9 +1155,9 @@ class OverlayService : Service() {
                                 colors = ButtonDefaults.buttonColors(containerColor = RangoLimeGreen),
                                 shape = RoundedCornerShape(3.dp),
                                 contentPadding = PaddingValues(0.dp),
-                                modifier = Modifier.weight(1.1f).height(21.dp)
+                                modifier = Modifier.weight(1.1f).height(16.dp)
                             ) {
-                                Text("🐉 DRAGON", color = Color.Black, fontSize = 7.sp, fontWeight = FontWeight.Black)
+                                Text("🐉 DRAGON", color = Color.Black, fontSize = 6.sp, fontWeight = FontWeight.Black)
                             }
                             Button(
                                 onClick = {
@@ -1105,9 +1166,9 @@ class OverlayService : Service() {
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8E24AA)),
                                 shape = RoundedCornerShape(3.dp),
                                 contentPadding = PaddingValues(0.dp),
-                                modifier = Modifier.weight(0.8f).height(21.dp)
+                                modifier = Modifier.weight(0.8f).height(16.dp)
                             ) {
-                                Text("TIE", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Black)
+                                Text("TIE", color = Color.White, fontSize = 6.sp, fontWeight = FontWeight.Black)
                             }
                             Button(
                                 onClick = {
@@ -1116,9 +1177,9 @@ class OverlayService : Service() {
                                 colors = ButtonDefaults.buttonColors(containerColor = RangoDangerRed),
                                 shape = RoundedCornerShape(3.dp),
                                 contentPadding = PaddingValues(0.dp),
-                                modifier = Modifier.weight(1.1f).height(21.dp)
+                                modifier = Modifier.weight(1.1f).height(16.dp)
                             ) {
-                                Text("🐯 TIGER", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.Black)
+                                Text("🐯 TIGER", color = Color.White, fontSize = 6.sp, fontWeight = FontWeight.Black)
                             }
                         }
 
@@ -1138,16 +1199,16 @@ class OverlayService : Service() {
                                         val launchIntent = Intent(this@OverlayService, MainActivity::class.java).apply {
                                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                                             putExtra("EXTRA_START_OCR_IMMEDIATELY", true)
-                                        }
-                                        startActivity(launchIntent)
+                                         }
+                                         startActivity(launchIntent)
                                     }
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = if (isScanning) RangoDangerRed else RangoLimeGreen),
                                 shape = RoundedCornerShape(3.dp),
                                 contentPadding = PaddingValues(0.dp),
-                                modifier = Modifier.fillMaxWidth().height(18.dp)
+                                modifier = Modifier.fillMaxWidth().height(15.dp)
                             ) {
-                                Text(if (isScanning) "STOP OCR" else "AUTO OCR", color = Color.Black, fontSize = 7.sp, fontWeight = FontWeight.Black)
+                                Text(if (isScanning) "STOP OCR" else "AUTO OCR", color = Color.Black, fontSize = 6.sp, fontWeight = FontWeight.Black)
                             }
                         }
                     } else {
@@ -1796,6 +1857,24 @@ class OverlayService : Service() {
         }
     }
 
+    private fun generateLocalFallbackAdvice(gameType: String, currentBalance: Double): String {
+        return if (gameType == "DRAGON_TIGER") {
+            val localDtResult = DragonTigerAnalyzer.analyze(recentDtRoundsList.value)
+            val predictedNext = localDtResult.predictedNext
+            val hotSideText = if (localDtResult.hotSide != "BALANCED") "Follow the ${localDtResult.hotSide} dominant side." else "Wait for trend to outline."
+            val matchedText = when (predictedNext) {
+                "DRAGON" -> "Expect Dragon to claim dominance next after brief fluctuation. Bet PKR 20 on Dragon to safely grow your PKR ${String.format("%.2f", currentBalance)} balance."
+                "TIGER" -> "Expect Tiger to reclaim dominance next after brief fluctuation. Bet PKR 20 on Tiger to safely grow your PKR ${String.format("%.2f", currentBalance)} balance."
+                "TIE POSSIBLE" -> "Tie / Pair result is overdue. Consider skipping Dragon/Tiger or placing a small PKR 10 protection bet on Tie."
+                else -> "No clear patterns detected. $hotSideText"
+            }
+            "🤖 [Local Core Analysis]\n$matchedText"
+        } else {
+            val metrics = calculateLiveMetrics(recentMultipliersList.value)
+            "🤖 [Local Core Analysis]\nBased on current ${metrics.trend} trend, recommend cashout safely around ${String.format("%.2f", metrics.cashout)}x. Suggested Bet: ${metrics.betFactor}x base."
+        }
+    }
+
     private fun triggerRealtimeGeminiPipeline(force: Boolean = false) {
         val now = System.currentTimeMillis()
         val elapsed = now - lastGeminiCallTime
@@ -1811,14 +1890,16 @@ class OverlayService : Service() {
         lastGeminiCallTime = now
         serviceScope.launch {
             val key = geminiApiKey.value
+            val game = overlayGame.value
+            val currentBalance = walletBalanceInput.value.toDoubleOrNull() ?: 280.89
+
             if (key.isBlank()) {
-                geminiAiAdvice.value = "Please add Gemini API Key on Dashboard first."
+                val fallback = generateLocalFallbackAdvice(game, currentBalance)
+                geminiAiAdvice.value = "$fallback\n\n⚠️ Please add Gemini API Key on Dashboard to unlock real-time Gemini AI Model!"
                 return@launch
             }
             
             isGeminiLoading.value = true
-            val game = overlayGame.value
-            val currentBalance = walletBalanceInput.value.toDoubleOrNull() ?: 280.89
             
             try {
                 val adviceResult = if (game == "DRAGON_TIGER") {
@@ -1840,9 +1921,16 @@ class OverlayService : Service() {
                     val trend = calculateLiveMetrics(recentMultipliersList.value).trend
                     com.example.api.GeminiClient.analyzeGame(key, game, multipliersStr, currentBalance, trend)
                 }
-                geminiAiAdvice.value = adviceResult
+
+                if (adviceResult.contains("API Server connection issue") || adviceResult.contains("Gemini API Key is missing")) {
+                    val fallback = generateLocalFallbackAdvice(game, currentBalance)
+                    geminiAiAdvice.value = "$fallback\n\n⚠️ Connection is temporary limited (Rate-Limit / HTTP 429). Offline prediction running."
+                } else {
+                    geminiAiAdvice.value = adviceResult
+                }
             } catch (e: Exception) {
-                geminiAiAdvice.value = "Advice Fail: ${e.localizedMessage}"
+                val fallback = generateLocalFallbackAdvice(game, currentBalance)
+                geminiAiAdvice.value = "$fallback\n\n⚠️ Gemini Offline Fallback Triggered: ${e.localizedMessage}"
             } finally {
                 isGeminiLoading.value = false
             }
