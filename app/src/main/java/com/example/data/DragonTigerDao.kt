@@ -18,4 +18,7 @@ interface DragonTigerDao {
     
     @Query("DELETE FROM dragon_tiger_rounds")
     suspend fun clearAll()
+
+    @Query("DELETE FROM dragon_tiger_rounds WHERE id = (SELECT id FROM dragon_tiger_rounds ORDER BY timestamp DESC LIMIT 1)")
+    suspend fun deleteLastRound()
 }

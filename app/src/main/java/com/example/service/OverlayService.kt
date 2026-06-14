@@ -226,7 +226,7 @@ class OverlayService : Service() {
         // Listen to Dragon Tiger updates
         serviceScope.launch {
             dtDao.getAllRounds().collect { list ->
-                recentDtRoundsList.value = list.take(15)
+                recentDtRoundsList.value = list.take(30)
             }
         }
 
@@ -567,6 +567,22 @@ class OverlayService : Service() {
         serviceScope.launch {
             dtDao.insertRound(com.example.data.DragonTigerRound(result = result))
             captureLogs.value = "Result logged: $result"
+            triggerRealtimeGeminiPipeline(force = true)
+        }
+    }
+
+    private fun deleteLastDragonTigerRound() {
+        serviceScope.launch {
+            dtDao.deleteLastRound()
+            captureLogs.value = "Last round undone"
+            triggerRealtimeGeminiPipeline(force = true)
+        }
+    }
+
+    private fun clearAllDragonTigerRounds() {
+        serviceScope.launch {
+            dtDao.clearAll()
+            captureLogs.value = "All rounds cleared"
             triggerRealtimeGeminiPipeline(force = true)
         }
     }
@@ -1049,23 +1065,68 @@ class OverlayService : Service() {
                                 )
                             }
                         }
-                        
-                        if (dtResult.tieWarning) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 1.dp)
-                                    .clip(RoundedCornerShape(3.dp))
-                                    .background(RangoDesertGold.copy(alpha = 0.9f))
-                                    .padding(vertical = 1.5.dp),
-                                contentAlignment = Alignment.Center
+
+                        // 🎰 BACCARAT ROADS PANEL
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(0.5.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(Color.Black.copy(alpha = 0.4f))
+                                .padding(vertical = 1.5.dp, horizontal = 3.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
+                                Text("NEXT SIDE:", color = RangoTextMuted, fontSize = 6.sp, fontWeight = FontWeight.Bold)
                                 Text(
-                                    text = "⚠️ TIE OVERDUE WARNING",
-                                    color = Color.Black,
-                                    fontSize = 7.sp,
+                                    text = if (dtResult.predictedNext == "UNCERTAIN") "STANDBY" else dtResult.predictedNext,
+                                    color = if (dtResult.predictedNext == "DRAGON") Color(0xFF1E88E5) else if (dtResult.predictedNext == "TIGER") RangoDangerRed else Color.Gray,
+                                    fontSize = 6.5.sp,
                                     fontWeight = FontWeight.Black
                                 )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("ROAD DECISION:", color = RangoTextMuted, fontSize = 6.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = dtResult.finalRoadDecision,
+                                    color = if (dtResult.finalRoadDecision == "CONTINUE") RangoLimeGreen else if (dtResult.finalRoadDecision == "REVERSAL") RangoDesertGold else Color.Gray,
+                                    fontSize = 6.5.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("ROAD SIGNALS:", color = RangoTextMuted, fontSize = 5.5.sp, fontWeight = FontWeight.SemiBold)
+                                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        text = "BEB: ${dtResult.bigEyeBoySignal}",
+                                        color = if (dtResult.bigEyeBoySignal == "RED") RangoDangerRed else if (dtResult.bigEyeBoySignal == "BLUE") Color(0xFF1E88E5) else Color.Gray,
+                                        fontSize = 5.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "SR: ${dtResult.smallRoadSignal}",
+                                        color = if (dtResult.smallRoadSignal == "RED") RangoDangerRed else if (dtResult.smallRoadSignal == "BLUE") Color(0xFF1E88E5) else Color.Gray,
+                                        fontSize = 5.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "CR: ${dtResult.cockroachRoadSignal}",
+                                        color = if (dtResult.cockroachRoadSignal == "RED") RangoDangerRed else if (dtResult.cockroachRoadSignal == "BLUE") Color(0xFF1E88E5) else Color.Gray,
+                                        fontSize = 5.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                         }
                         
@@ -1108,21 +1169,21 @@ class OverlayService : Service() {
                                     ) {
                                         recentDtList.take(8).forEach { round ->
                                             val (letter, color) = when (round.result) {
-                                                "D" -> "D" to Color(0xFF00B0FF) // Neon Blue for Dragon
-                                                "T" -> "T" to RangoDangerRed   // Red for Tiger
-                                                "X", "TIE", "P" -> "P" to Color(0xFFE040FB) // "tie ke p" -> Pink/purple P for Tie
+                                                "D" -> "D" to Color(0xFF1E88E5) // Solid Blue for Dragon
+                                                "T" -> "T" to RangoDangerRed   // Solid Neon Red for Tiger
+                                                "X", "TIE", "P" -> "P" to Color(0xFF8E24AA) // Solid Purple for Tie
                                                 else -> round.result to Color.White
                                             }
                                             Box(
                                                 modifier = Modifier
-                                                    .size(8.5.dp)
-                                                    .clip(RoundedCornerShape(1.5.dp))
-                                                    .background(color.copy(alpha = 0.15f)),
+                                                    .size(9.dp)
+                                                    .clip(RoundedCornerShape(2.dp))
+                                                    .background(color),
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Text(
                                                     text = letter,
-                                                    color = color,
+                                                    color = Color.White,
                                                     fontSize = 6.sp,
                                                     fontWeight = FontWeight.Black,
                                                     fontFamily = FontFamily.Monospace
@@ -1180,6 +1241,35 @@ class OverlayService : Service() {
                                 modifier = Modifier.weight(1.1f).height(16.dp)
                             ) {
                                 Text("🐯 TIGER", color = Color.White, fontSize = 6.sp, fontWeight = FontWeight.Black)
+                            }
+                        }
+
+                        // Undo & Reset controls row
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 1.dp),
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    deleteLastDragonTigerRound()
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray),
+                                shape = RoundedCornerShape(3.dp),
+                                contentPadding = PaddingValues(0.dp),
+                                modifier = Modifier.weight(1f).height(14.dp)
+                            ) {
+                                Text("↶ UNDO LAST", color = Color.White, fontSize = 5.5.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Button(
+                                onClick = {
+                                    clearAllDragonTigerRounds()
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828)),
+                                shape = RoundedCornerShape(3.dp),
+                                contentPadding = PaddingValues(0.dp),
+                                modifier = Modifier.weight(1f).height(14.dp)
+                            ) {
+                                Text("🗑️ CLEAR ALL", color = Color.White, fontSize = 5.5.sp, fontWeight = FontWeight.Bold)
                             }
                         }
 
@@ -1860,15 +1950,14 @@ class OverlayService : Service() {
     private fun generateLocalFallbackAdvice(gameType: String, currentBalance: Double): String {
         return if (gameType == "DRAGON_TIGER") {
             val localDtResult = DragonTigerAnalyzer.analyze(recentDtRoundsList.value)
-            val predictedNext = localDtResult.predictedNext
-            val hotSideText = if (localDtResult.hotSide != "BALANCED") "Follow the ${localDtResult.hotSide} dominant side." else "Wait for trend to outline."
-            val matchedText = when (predictedNext) {
-                "DRAGON" -> "Expect Dragon to claim dominance next after brief fluctuation. Bet PKR 20 on Dragon to safely grow your PKR ${String.format("%.2f", currentBalance)} balance."
-                "TIGER" -> "Expect Tiger to reclaim dominance next after brief fluctuation. Bet PKR 20 on Tiger to safely grow your PKR ${String.format("%.2f", currentBalance)} balance."
-                "TIE POSSIBLE" -> "Tie / Pair result is overdue. Consider skipping Dragon/Tiger or placing a small PKR 10 protection bet on Tie."
-                else -> "No clear patterns detected. $hotSideText"
+            if (localDtResult.trendLabel == "COLLECTING") {
+                return "🤖 [Local Engine]\nAdd at least 6 rounds to begin offline road matrix diagnostics."
             }
-            "🤖 [Local Core Analysis]\n$matchedText"
+            "🤖 [Offline Local Road Analyser]\n" +
+            "• Next Recommendation: ${if (localDtResult.predictedNext == "UNCERTAIN") "STANDBY (UNCERTAIN)" else localDtResult.predictedNext}\n" +
+            "• Road Decision: ${localDtResult.finalRoadDecision}\n" +
+            "• Signals: BEB = ${localDtResult.bigEyeBoySignal}, SR = ${localDtResult.smallRoadSignal}, CR = ${localDtResult.cockroachRoadSignal}\n" +
+            "• Analysis: ${localDtResult.advice}"
         } else {
             val metrics = calculateLiveMetrics(recentMultipliersList.value)
             "🤖 [Local Core Analysis]\nBased on current ${metrics.trend} trend, recommend cashout safely around ${String.format("%.2f", metrics.cashout)}x. Suggested Bet: ${metrics.betFactor}x base."
@@ -1903,14 +1992,54 @@ class OverlayService : Service() {
             
             try {
                 val adviceResult = if (game == "DRAGON_TIGER") {
-                    val recentList = recentDtRoundsList.value.take(10)
+                    val recentList = recentDtRoundsList.value
                     if (recentList.isEmpty()) {
                         isGeminiLoading.value = false
                         return@launch
                     }
-                    val dataStr = recentList.joinToString(", ") { it.result }
-                    val trend = DragonTigerAnalyzer.analyze(recentDtRoundsList.value).trendLabel
-                    com.example.api.GeminiClient.analyzeGame(key, game, dataStr, currentBalance, trend)
+                    val recent20 = recentList.take(20)
+                    val dtResult = DragonTigerAnalyzer.analyze(recentList)
+                    
+                    val nonTieRounds = recentList.filter { it.result == "D" || it.result == "T" }
+                    val chronologicalNonTies = nonTieRounds.reversed()
+                    val columns = mutableListOf<MutableList<String>>()
+                    for (round in chronologicalNonTies) {
+                        val res = round.result
+                        if (columns.isEmpty() || columns.last().first() != res) {
+                            columns.add(mutableListOf(res))
+                        } else {
+                            columns.last().add(res)
+                        }
+                    }
+                    val bigRoadStr = columns.joinToString(" | ") { col -> col.joinToString(",") }
+
+                    val customPrompt = """
+                        You are an elite, professional Casino Dragon Tiger Game Analyzer.
+                        
+                        CURRENT SESSION DATA:
+                        - Current Game Mode: DRAGON_TIGER
+                        - Wallet Balance: PKR $currentBalance
+                        - Last 20 Rounds (Newest first): ${recent20.joinToString(", ") { it.result }} (D=Dragon, T=Tiger, X/P/TIE=Tie)
+                        
+                        CASINO MULTI-ROAD MATRIX ANALYSIS:
+                        - Big Road Structure: $bigRoadStr
+                        - Big Eye Boy State: ${dtResult.bigEyeBoySignal} (RED = continuation, BLUE = reversal)
+                        - Small Road State: ${dtResult.smallRoadSignal} (RED = continuation, BLUE = reversal)
+                        - Cockroach Road State: ${dtResult.cockroachRoadSignal} (RED = continuation, BLUE = reversal)
+                        - Current Streak: ${dtResult.currentStreak} (Streak length: ${dtResult.streakCount})
+                        - Road Signals Summary: Big Eye Boy = ${dtResult.bigEyeBoySignal}, Small Road = ${dtResult.smallRoadSignal}, Cockroach = ${dtResult.cockroachRoadSignal}
+                        - Offline Road Voting Decision: ${dtResult.finalRoadDecision}
+
+                        Analyze this layout and formulate your tactical strategy.
+                        Your summary MUST address the following 5 points in a concise, bulleted format (maximum 60-70 words total, sharp and direct, no disclaimers):
+                        1. **Road Interpretation**: (Briefly analyze the pattern)
+                        2. **Opinion**: (Suggest Continuation or Reversal)
+                        3. **Risk**: (Assess Risk level)
+                        4. **Bankroll**: (Aggressive, conservative, or skip bet amount)
+                        5. **Reasoning**: (Short 1-sentence explanation)
+                    """.trimIndent()
+
+                    com.example.api.GeminiClient.getStrategyAdvice(customPrompt, key)
                 } else {
                     val recentList = recentMultipliersList.value.take(10)
                     if (recentList.isEmpty()) {

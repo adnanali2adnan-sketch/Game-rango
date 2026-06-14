@@ -512,20 +512,86 @@ fun DragonTigerDashboardContent(
                         Text("Tie: ${dtResult.tiePct}%", color = RangoDesertGold, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
 
-                    if (dtResult.tieWarning) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(RangoDesertGold.copy(alpha = 0.2f))
-                                .padding(vertical = 6.dp),
-                            contentAlignment = Alignment.Center
+                    // 🎰 Advanced Baccarat Multi-Road Diagnostics Panel
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.Black.copy(alpha = 0.35f))
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            "🎰 CASINO-STYLE ROAD COCKPIT",
+                            color = RangoDesertGold,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
+                            Text("NEXT SIDE PREDICTION:", color = RangoTextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             Text(
-                                "🚨 TIE OVERDUE WARNING ACTIVE",
-                                color = RangoDesertGold,
-                                fontWeight = FontWeight.Black,
-                                fontSize = 11.sp
+                                text = if (dtResult.predictedNext == "UNCERTAIN") "STANDBY (UNCERTAIN)" else dtResult.predictedNext,
+                                color = if (dtResult.predictedNext == "DRAGON") Color(0xFF1E88E5) else if (dtResult.predictedNext == "TIGER") RangoDangerRed else Color.LightGray,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("ROAD VOTING DECISION:", color = RangoTextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = dtResult.finalRoadDecision,
+                                color = if (dtResult.finalRoadDecision == "CONTINUE") RangoLimeGreen else if (dtResult.finalRoadDecision == "REVERSAL") RangoDesertGold else Color.LightGray,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                        HorizontalDivider(color = RangoTealSky.copy(alpha = 0.2f), modifier = Modifier.padding(vertical = 2.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Big Eye Boy Signal:", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                            Text(
+                                text = dtResult.bigEyeBoySignal,
+                                color = if (dtResult.bigEyeBoySignal == "RED") RangoDangerRed else if (dtResult.bigEyeBoySignal == "BLUE") Color(0xFF1E88E5) else Color.Gray,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Small Road Signal:", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                            Text(
+                                text = dtResult.smallRoadSignal,
+                                color = if (dtResult.smallRoadSignal == "RED") RangoDangerRed else if (dtResult.smallRoadSignal == "BLUE") Color(0xFF1E88E5) else Color.Gray,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Cockroach Road Signal:", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                            Text(
+                                text = dtResult.cockroachRoadSignal,
+                                color = if (dtResult.cockroachRoadSignal == "RED") RangoDangerRed else if (dtResult.cockroachRoadSignal == "BLUE") Color(0xFF1E88E5) else Color.Gray,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
                             )
                         }
                     }

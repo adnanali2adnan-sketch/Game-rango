@@ -181,15 +181,56 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
             val balanceValue = userBalanceInput.value.toDoubleOrNull() ?: 280.89
 
             val answer = if (game == "DRAGON_TIGER") {
-                val recentList = dtDao.getRecentRounds(15)
+                val recentList = dtDao.getRecentRounds(30)
                 if (recentList.isEmpty()) {
                     _aiAdviceText.value = "Lobby history is currently empty. Please log some Dragon Tiger rounds to begin analysis."
                     _isLoadingAdvice.value = false
                     return@launch
                 }
-                val dataStr = recentList.joinToString(", ") { it.result }
-                val trend = DragonTigerAnalyzer.analyze(recentList).trendLabel
-                GeminiClient.analyzeGame(customKey, game, dataStr, balanceValue, trend)
+                
+                val recent20 = recentList.take(20)
+                val dtResult = DragonTigerAnalyzer.analyze(recentList)
+                
+                val nonTieRounds = recentList.filter { it.result == "D" || it.result == "T" }
+                val chronologicalNonTies = nonTieRounds.reversed()
+                val columns = mutableListOf<MutableList<String>>()
+                for (round in chronologicalNonTies) {
+                    val res = round.result
+                    if (columns.isEmpty() || columns.last().first() != res) {
+                        columns.add(mutableListOf(res))
+                    } else {
+                        columns.last().add(res)
+                    }
+                }
+                val bigRoadStr = columns.joinToString(" | ") { col -> col.joinToString(",") }
+
+                val customPrompt = """
+                    You are an elite, professional Casino Dragon Tiger Game Analyzer.
+                    
+                    CURRENT SESSION DATA:
+                    - Current Game Mode: DRAGON_TIGER
+                    - Wallet Balance: PKR $balanceValue
+                    - Last 20 Rounds (Newest first): ${recent20.joinToString(", ") { it.result }} (D=Dragon, T=Tiger, X/P/TIE=Tie)
+                    
+                    CASINO MULTI-ROAD MATRIX ANALYSIS:
+                    - Big Road Structure: $bigRoadStr
+                    - Big Eye Boy State: ${dtResult.bigEyeBoySignal} (RED = continuation, BLUE = reversal)
+                    - Small Road State: ${dtResult.smallRoadSignal} (RED = continuation, BLUE = reversal)
+                    - Cockroach Road State: ${dtResult.cockroachRoadSignal} (RED = continuation, BLUE = reversal)
+                    - Current Streak: ${dtResult.currentStreak} (Streak length: ${dtResult.streakCount})
+                    - Road Signals Summary: Big Eye Boy = ${dtResult.bigEyeBoySignal}, Small Road = ${dtResult.smallRoadSignal}, Cockroach = ${dtResult.cockroachRoadSignal}
+                    - Offline Road Voting Decision: ${dtResult.finalRoadDecision}
+
+                    Analyze this layout and formulate your tactical strategy.
+                    Your summary MUST address the following 5 points in a concise, bulleted format (maximum 60-70 words total, sharp and direct, no disclaimers):
+                    1. **Road Interpretation**: (Briefly analyze the pattern)
+                    2. **Opinion**: (Suggest Continuation or Reversal)
+                    3. **Risk**: (Assess Risk level)
+                    4. **Bankroll**: (Aggressive, conservative, or skip bet amount)
+                    5. **Reasoning**: (Short 1-sentence explanation)
+                """.trimIndent()
+
+                GeminiClient.getStrategyAdvice(customPrompt, customKey)
             } else {
                 val recentList = repository.getRecentLimit(15)
                 if (recentList.isEmpty()) {
