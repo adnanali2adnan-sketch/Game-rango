@@ -40,6 +40,17 @@ class MainActivity : ComponentActivity() {
     ) { result ->
         val resultData = result.data
         if (result.resultCode == RESULT_OK && resultData != null) {
+            // Check if overlay permission is granted first
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+                Toast.makeText(this, "Please grant overlay permission to enable the Cockpit HUD first!", Toast.LENGTH_LONG).show()
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+                overlayPermissionLauncher.launch(intent)
+                return@registerForActivityResult
+            }
+
             // Save parameters into process-level global statics to solve OS-dependent intent serialization bottlenecks
             OverlayService.savedProjectionResultCode = result.resultCode
             OverlayService.savedProjectionIntent = resultData

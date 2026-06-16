@@ -710,10 +710,10 @@ class OverlayService : Service() {
         val configuration = androidx.compose.ui.platform.LocalConfiguration.current
         val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
         
-        val verticalPadding = if (isLandscape) 2.dp else 3.dp
-        val horizontalPadding = if (isLandscape) 4.dp else 5.dp
-        val titleSize = if (isLandscape) 6.sp else 6.5.sp
-        val valueSize = if (isLandscape) 9.sp else 10.5.sp
+        val verticalPadding = if (isLandscape) 1.dp else 2.dp
+        val horizontalPadding = if (isLandscape) 1.5.dp else 2.dp
+        val titleSize = if (isLandscape) 4.5.sp else 5.8.sp
+        val valueSize = if (isLandscape) 7.5.sp else 8.5.sp
 
         Box(
             modifier = modifier
@@ -772,8 +772,8 @@ class OverlayService : Service() {
         val configuration = androidx.compose.ui.platform.LocalConfiguration.current
         val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
-        val expandedWidthDp = if (isLandscape) 260.dp else 200.dp
-        val expandedMaxHeightDp = (configuration.screenHeightDp * 0.85f).dp
+        val expandedWidthDp = if (isLandscape) 190.dp else 145.dp
+        val expandedMaxHeightDp = (configuration.screenHeightDp * 0.65f).dp
 
         var isGeminiExpanded by remember { mutableStateOf(true) }
 
@@ -1068,7 +1068,7 @@ class OverlayService : Service() {
                             }
                         }
 
-                        // 🎰 BACCARAT ROADS PANEL
+                        // 🎰 BACCARAT ROADS PANEL (NEXT SIDE ONLY to keep HUD ultra-compact)
                         Column(
                             verticalArrangement = Arrangement.spacedBy(0.5.dp),
                             modifier = Modifier
@@ -1090,56 +1090,7 @@ class OverlayService : Service() {
                                     fontWeight = FontWeight.Black
                                 )
                             }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("ROAD DECISION:", color = RangoTextMuted, fontSize = if (isLandscape) 6.sp else 7.5.sp, fontWeight = FontWeight.Bold)
-                                Text(
-                                    text = dtResult.finalRoadDecision,
-                                    color = if (dtResult.finalRoadDecision == "CONTINUE") RangoLimeGreen else if (dtResult.finalRoadDecision == "REVERSAL") RangoDesertGold else Color.Gray,
-                                    fontSize = if (isLandscape) 6.5.sp else 8.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("ROAD SIGNALS:", color = RangoTextMuted, fontSize = if (isLandscape) 5.5.sp else 6.5.sp, fontWeight = FontWeight.SemiBold)
-                                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text(
-                                        text = "BEB: ${dtResult.bigEyeBoySignal}",
-                                        color = if (dtResult.bigEyeBoySignal == "RED") RangoDangerRed else if (dtResult.bigEyeBoySignal == "BLUE") Color(0xFF1E88E5) else Color.Gray,
-                                        fontSize = if (isLandscape) 5.5.sp else 6.5.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        text = "SR: ${dtResult.smallRoadSignal}",
-                                        color = if (dtResult.smallRoadSignal == "RED") RangoDangerRed else if (dtResult.smallRoadSignal == "BLUE") Color(0xFF1E88E5) else Color.Gray,
-                                        fontSize = if (isLandscape) 5.5.sp else 6.5.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        text = "CR: ${dtResult.cockroachRoadSignal}",
-                                        color = if (dtResult.cockroachRoadSignal == "RED") RangoDangerRed else if (dtResult.cockroachRoadSignal == "BLUE") Color(0xFF1E88E5) else Color.Gray,
-                                        fontSize = if (isLandscape) 5.5.sp else 6.5.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
                         }
-                        
-                        Text(
-                            text = dtResult.advice,
-                            color = RangoTextWhite,
-                            fontSize = if (isLandscape) 6.5.sp else 8.sp,
-                            lineHeight = if (isLandscape) 8.sp else 10.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)
-                        )
 
                         // LAST ROUNDS Row for Dragon Tiger HUD
                         Column(
@@ -1764,26 +1715,62 @@ class OverlayService : Service() {
                                     modifier = Modifier.padding(vertical = 1.5.dp)
                                 )
                             } else {
-                                if (isGeminiExpanded) {
-                                    Text(
-                                        text = liveAdvice,
-                                        color = RangoTextWhite,
-                                        fontSize = if (isLandscape) 6.sp else 7.5.sp,
-                                        lineHeight = if (isLandscape) 7.5.sp else 9.5.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        modifier = Modifier.fillMaxWidth().padding(top = 1.dp)
-                                    )
-                                } else {
-                                    Text(
-                                        text = liveAdvice,
-                                        color = RangoTextWhite,
-                                        fontSize = if (isLandscape) 6.sp else 7.5.sp,
-                                        lineHeight = if (isLandscape) 7.5.sp else 9.5.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        maxLines = 2,
-                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                                        modifier = Modifier.fillMaxWidth().padding(top = 1.dp)
-                                    )
+                                val advicePair = remember(liveAdvice, overlayGame.value) { 
+                                    getSimplifiedAdviceDisplay(liveAdvice, overlayGame.value) 
+                                }
+                                val (recText, expText) = advicePair
+                                
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(1.dp)
+                                ) {
+                                    if (recText.isNotEmpty()) {
+                                        val badgeBg = when {
+                                            recText.contains("DRAGON") -> Color(0xFF1E88E5).copy(alpha = 0.25f)
+                                            recText.contains("TIGER") -> RangoDangerRed.copy(alpha = 0.25f)
+                                            recText.contains("TIE") -> Color(0xFF8E24AA).copy(alpha = 0.25f)
+                                            recText.contains("CASHOUT") -> RangoLimeGreen.copy(alpha = 0.25f)
+                                            recText.contains("BET") -> RangoLimeGreen.copy(alpha = 0.25f)
+                                            else -> Color.Gray.copy(alpha = 0.2f)
+                                        }
+                                        val badgeTextCol = when {
+                                            recText.contains("DRAGON") -> Color(0xFF64B5F6)
+                                            recText.contains("TIGER") -> Color(0xFFFF8A80)
+                                            recText.contains("TIE") -> Color(0xFFE040FB)
+                                            recText.contains("CASHOUT") -> RangoLimeGreen
+                                            recText.contains("BET") -> RangoLimeGreen
+                                            else -> Color.White
+                                        }
+                                        
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(badgeBg)
+                                                .padding(vertical = 3.dp, horizontal = 5.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = recText,
+                                                color = badgeTextCol,
+                                                fontSize = if (isLandscape) 6.5.sp else 8.sp,
+                                                fontWeight = FontWeight.Black,
+                                                fontFamily = FontFamily.SansSerif
+                                            )
+                                        }
+                                    }
+                                    
+                                    if (expText.isNotEmpty()) {
+                                        Text(
+                                            text = expText,
+                                            color = RangoTextWhite,
+                                            fontSize = if (isLandscape) 5.5.sp else 7.sp,
+                                            lineHeight = if (isLandscape) 7.sp else 9.sp,
+                                            fontFamily = FontFamily.SansSerif,
+                                            fontWeight = FontWeight.Medium,
+                                            modifier = Modifier.fillMaxWidth().padding(top = 1.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -2037,6 +2024,98 @@ class OverlayService : Service() {
         }
     }
 
+    private fun getSimplifiedAdviceDisplay(advice: String, game: String): Pair<String, String> {
+        if (advice.isEmpty()) return Pair("", "")
+        if (advice.startsWith("⚠️") || advice.startsWith("Rate Limit") || advice.contains("Wait") || advice.contains("Please add") || advice.contains("limit reached") || advice.contains("Connection error") || advice.lowercase().contains("offline") || advice.lowercase().contains("local")) {
+            return Pair("RECOMMENDATION: STANDBY ⏳", "Waiting for online Gemini AI strategy advice...")
+        }
+        
+        val lower = advice.lowercase()
+        val lines = advice.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
+        
+        val recommendationLine = lines.find { it.lowercase().startsWith("recommendation:") }
+        val reasonLine = lines.find { it.lowercase().startsWith("reason:") }
+        
+        if (game == "DRAGON_TIGER") {
+            var rec = "STANDBY ⏳"
+            var explanation = ""
+            
+            if (recommendationLine != null) {
+                val rVal = recommendationLine.substringAfter(":").trim().replace(Regex("\\*\\*|\\*"), "").uppercase()
+                rec = when {
+                    rVal.contains("DRAGON") -> "RECOMMENDATION: DRAGON 🐉"
+                    rVal.contains("TIGER") -> "RECOMMENDATION: TIGER 🐯"
+                    rVal.contains("TIE") -> "RECOMMENDATION: TIE 👔"
+                    rVal.contains("SKIP") || rVal.contains("STANDBY") -> "RECOMMENDATION: SKIP / STANDBY ⏳"
+                    else -> "RECOMMENDATION: $rVal"
+                }
+            } else {
+                if (lower.contains("bet **dragon**") || lower.contains("bet dragon") || lower.contains("opinion**: dragon") || lower.contains("opinion: dragon")) {
+                    rec = "RECOMMENDATION: DRAGON 🐉"
+                } else if (lower.contains("bet **tiger**") || lower.contains("bet tiger") || lower.contains("opinion**: tiger") || lower.contains("opinion: tiger")) {
+                    rec = "RECOMMENDATION: TIGER 🐯"
+                } else if (lower.contains("bet **tie**") || lower.contains("bet tie") || lower.contains("opinion**: tie") || lower.contains("opinion: tie")) {
+                    rec = "RECOMMENDATION: TIE 👔"
+                } else if (lower.contains("skip") || lower.contains("standby") || lower.contains("uncertain")) {
+                    rec = "RECOMMENDATION: SKIP / STANDBY ⏳"
+                } else if (lower.contains("dragon")) {
+                    rec = "RECOMMENDATION: DRAGON 🐉"
+                } else if (lower.contains("tiger")) {
+                    rec = "RECOMMENDATION: TIGER 🐯"
+                } else {
+                    rec = "RECOMMENDATION: STANDBY ⏳"
+                }
+            }
+            
+            if (reasonLine != null) {
+                explanation = reasonLine.substringAfter(":").trim().replace(Regex("\\*\\*|\\*"), "")
+            } else {
+                val opinionLine = lines.find { it.lowercase().contains("opinion") }?.replace(Regex("\\*\\*|\\*"), "") ?: ""
+                val reasoningLine = lines.find { it.lowercase().contains("reasoning") }?.replace(Regex("\\*\\*|\\*"), "") ?: ""
+                
+                explanation = when {
+                    opinionLine.isNotEmpty() && reasoningLine.isNotEmpty() -> "$opinionLine. $reasoningLine"
+                    reasoningLine.isNotEmpty() -> reasoningLine
+                    opinionLine.isNotEmpty() -> opinionLine
+                    lines.isNotEmpty() -> lines.take(2).joinToString(" ").replace(Regex("\\*\\*|\\*"), "")
+                    else -> ""
+                }
+            }
+            
+            val cleanExplanation = explanation
+                .replace(Regex("(?i)opinion:"), "")
+                .replace(Regex("(?i)reasoning:"), "")
+                .trim()
+                
+            return Pair(rec, if (cleanExplanation.length > 90) cleanExplanation.take(87) + "..." else cleanExplanation)
+        } else {
+            var rec = "RECOMMENDATION: STANDBY ⏳"
+            var explanation = ""
+            
+            if (recommendationLine != null) {
+                val rVal = recommendationLine.substringAfter(":").trim().replace(Regex("\\*\\*|\\*"), "").uppercase()
+                rec = "RECOMMENDATION: $rVal"
+            } else {
+                if (lower.contains("cashout")) {
+                    val regex = Regex("(\\d+\\.\\d+x|\\d+x)")
+                    val match = regex.find(advice)
+                    rec = if (match != null) "RECOMMENDATION: CASHOUT @ ${match.value} 🚀" else "RECOMMENDATION: CASHOUT ADVICE 🚀"
+                } else if (lower.contains("skip") || lower.contains("wait")) {
+                    rec = "RECOMMENDATION: SKIP ROUND ❌"
+                } else if (lower.contains("bet")) {
+                    rec = "RECOMMENDATION: BET ROUND 🎯"
+                }
+            }
+            
+            if (reasonLine != null) {
+                explanation = reasonLine.substringAfter(":").trim().replace(Regex("\\*\\*|\\*"), "")
+            } else {
+                explanation = lines.take(2).joinToString(" ").replace(Regex("\\*\\*|\\*"), "")
+            }
+            return Pair(rec, if (explanation.length > 90) explanation.take(87) + "..." else explanation)
+        }
+    }
+
     private fun triggerRealtimeGeminiPipeline(force: Boolean = false) {
         val now = System.currentTimeMillis()
         val elapsed = now - lastGeminiCallTime
@@ -2056,8 +2135,7 @@ class OverlayService : Service() {
             val currentBalance = walletBalanceInput.value.toDoubleOrNull() ?: 280.89
 
             if (key.isBlank()) {
-                val fallback = generateLocalFallbackAdvice(game, currentBalance)
-                geminiAiAdvice.value = "$fallback\n\n⚠️ Please add Gemini API Key on Dashboard to unlock real-time Gemini AI Model!"
+                geminiAiAdvice.value = "⚠️ Please add Gemini API Key on Dashboard to unlock real-time Gemini AI Model!"
                 return@launch
             }
             
@@ -2104,12 +2182,9 @@ class OverlayService : Service() {
                         - Offline Road Voting Decision: ${dtResult.finalRoadDecision}
 
                         Analyze this layout and formulate your tactical strategy.
-                        Your summary MUST address the following 5 points in a concise, bulleted format (maximum 60-70 words total, sharp and direct, no disclaimers):
-                        1. **Road Interpretation**: (Briefly analyze the pattern)
-                        2. **Opinion**: (Suggest Continuation or Reversal)
-                        3. **Risk**: (Assess Risk level)
-                        4. **Bankroll**: (Aggressive, conservative, or skip bet amount)
-                        5. **Reasoning**: (Short 1-sentence explanation)
+                        Your response MUST be formatted exactly as below (maximum 2 lines total, extremely concise, sharp and direct, no disclaimers):
+                        RECOMMENDATION: [DRAGON / TIGER / TIE / STANDBY]
+                        REASON: [Short 1-sentence explanation of why]
                     """.trimIndent()
 
                     com.example.api.GeminiClient.getStrategyAdvice(customPrompt, key)
@@ -2125,14 +2200,12 @@ class OverlayService : Service() {
                 }
 
                 if (adviceResult.contains("API Server connection issue") || adviceResult.contains("Gemini API Key is missing")) {
-                    val fallback = generateLocalFallbackAdvice(game, currentBalance)
-                    geminiAiAdvice.value = "$fallback\n\n⚠️ Connection is temporary limited (Rate-Limit / HTTP 429). Offline prediction running."
+                    geminiAiAdvice.value = "⚠️ Connection is temporary limited (Rate-Limit / HTTP 429). Please check API key."
                 } else {
                     geminiAiAdvice.value = adviceResult
                 }
             } catch (e: Exception) {
-                val fallback = generateLocalFallbackAdvice(game, currentBalance)
-                geminiAiAdvice.value = "$fallback\n\n⚠️ Gemini Offline Fallback Triggered: ${e.localizedMessage}"
+                geminiAiAdvice.value = "⚠️ Connection error or invalid API key. Please check dashboard."
             } finally {
                 isGeminiLoading.value = false
             }

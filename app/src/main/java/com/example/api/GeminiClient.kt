@@ -77,18 +77,23 @@ object GeminiClient {
     ): String {
         val prompt = when (gameType) {
             "DRAGON_TIGER" -> """
-                You are Dragon Tiger card game advisor.
-                Recent results (newest first): $data (D=Dragon,T=Tiger,X=Tie)
+                You are elite Dragon Tiger card game advisor.
+                Recent results (newest first): $data (D=Dragon,T=Tiger,X/P=Tie)
                 Balance: PKR $balance. Current trend: $trendLabel.
-                Give 2-sentence advice: predict next and bet recommendation.
-                Max 35 words. Direct, no disclaimers.
+                
+                Your response MUST be formatted exactly as below (maximum 2 lines total, extremely concise, sharp and direct, no disclaimers):
+                RECOMMENDATION: [DRAGON / TIGER / TIE / STANDBY]
+                REASON: [Short 1-sentence explanation of why]
             """.trimIndent()
             
             else -> """
                 You are crash game advisor for $gameType.
                 Recent multipliers: $data
                 Balance: PKR $balance. Trend: $trendLabel.
-                2-sentence analysis. Cashout recommendation. Max 40 words.
+                
+                Your response MUST be formatted exactly as below (maximum 2 lines total, extremely concise, sharp and direct, no disclaimers):
+                RECOMMENDATION: [BET / CASHOUT @ [X]x / SKIP]
+                REASON: [Short 1-sentence explanation of why]
             """.trimIndent()
         }
         return getStrategyAdvice(prompt, apiKey)
