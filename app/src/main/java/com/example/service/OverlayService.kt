@@ -707,26 +707,32 @@ class OverlayService : Service() {
         valueColor: Color,
         modifier: Modifier = Modifier
     ) {
-        val density = androidx.compose.ui.platform.LocalDensity.current
+        val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+        val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        
+        val verticalPadding = if (isLandscape) 2.dp else 3.dp
+        val horizontalPadding = if (isLandscape) 4.dp else 5.dp
+        val titleSize = if (isLandscape) 6.sp else 6.5.sp
+        val valueSize = if (isLandscape) 9.sp else 10.5.sp
+
         Box(
             modifier = modifier
                 .clip(RoundedCornerShape(3.dp))
                 .background(bgColor)
-                .padding(horizontal = 4.dp, vertical = 3.dp),
+                .padding(horizontal = horizontalPadding, vertical = verticalPadding),
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = title,
                     color = RangoTextWhite.copy(alpha = 0.85f),
-                    fontSize = 5.sp,
+                    fontSize = titleSize,
                     fontWeight = FontWeight.Bold
                 )
-                Spacer(modifier = Modifier.height(with(density) { 2.toDp() }))
                 Text(
                     text = value,
                     color = valueColor,
-                    fontSize = 8.5.sp,
+                    fontSize = valueSize,
                     fontWeight = FontWeight.Black,
                     fontFamily = FontFamily.Monospace,
                     maxLines = 1
@@ -763,15 +769,13 @@ class OverlayService : Service() {
             }
         }
 
-        val density = androidx.compose.ui.platform.LocalDensity.current
-        val expandedWidthDp = remember(density) {
-            val px = resources.displayMetrics.widthPixels * 0.42f
-            with(density) { px.toDp() }.coerceIn(135.dp, 165.dp)
-        }
-        val expandedMaxHeightDp = remember(density) {
-            val px = resources.displayMetrics.heightPixels * 0.52f
-            with(density) { px.toDp() }.coerceIn(280.dp, 400.dp)
-        }
+        val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+        val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+
+        val expandedWidthDp = if (isLandscape) 260.dp else 200.dp
+        val expandedMaxHeightDp = (configuration.screenHeightDp * 0.85f).dp
+
+        var isGeminiExpanded by remember { mutableStateOf(true) }
 
         // Local Calculations
         val doubleBalance = balance.toDoubleOrNull() ?: 280.89
@@ -805,7 +809,7 @@ class OverlayService : Service() {
                     updateWindowFocus(false)
                 }
                 .padding(
-                    if (expanded) PaddingValues(horizontal = 5.dp, vertical = 4.dp)
+                    if (expanded) PaddingValues(horizontal = 4.dp, vertical = 3.dp)
                     else {
                         if (overlayMode == HudMode.VERTICAL) PaddingValues(vertical = 10.dp, horizontal = 4.dp)
                         else PaddingValues(horizontal = 12.dp, vertical = 8.dp)
@@ -816,8 +820,8 @@ class OverlayService : Service() {
             if (expanded) {
                 Box(
                     modifier = Modifier
-                        .width(with(density) { 20.toDp() })
-                        .height(with(density) { 3.toDp() })
+                        .width(20.dp)
+                        .height(3.dp)
                         .clip(RoundedCornerShape(1.5.dp))
                         .background(RangoTextMuted.copy(alpha = 0.5f))
                         .align(Alignment.CenterHorizontally)
@@ -995,7 +999,7 @@ class OverlayService : Service() {
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(3.dp))
                                 .background(Color.Black.copy(alpha = 0.35f))
-                                .padding(vertical = 1.dp, horizontal = 4.dp),
+                                .padding(vertical = 1.dp, horizontal = 3.dp),
                             contentAlignment = Alignment.CenterStart
                         ) {
                             Text(
@@ -1005,12 +1009,10 @@ class OverlayService : Service() {
                                     "MED RISK" -> RangoDesertGold
                                     else -> RangoLimeGreen
                                 },
-                                fontSize = 8.5.sp,
+                                fontSize = if (isLandscape) 7.5.sp else 8.5.sp,
                                 fontWeight = FontWeight.Black
                             )
                         }
-                        
-                        Spacer(modifier = Modifier.height(1.dp))
                         
                         // Prediction Grid or Row
                         Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
@@ -1027,7 +1029,7 @@ class OverlayService : Service() {
                                         else -> Color(0xFF37474F)
                                     },
                                     valueColor = Color.White,
-                                    modifier = Modifier.weight(1.4f)
+                                    modifier = Modifier.weight(1.3f)
                                 )
                                 BoxMetricItem(
                                     title = "STREAK",
@@ -1080,11 +1082,11 @@ class OverlayService : Service() {
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("NEXT SIDE:", color = RangoTextMuted, fontSize = 6.sp, fontWeight = FontWeight.Bold)
+                                Text("NEXT SIDE:", color = RangoTextMuted, fontSize = if (isLandscape) 6.sp else 7.5.sp, fontWeight = FontWeight.Bold)
                                 Text(
                                     text = if (dtResult.predictedNext == "UNCERTAIN") "STANDBY" else dtResult.predictedNext,
                                     color = if (dtResult.predictedNext == "DRAGON") Color(0xFF1E88E5) else if (dtResult.predictedNext == "TIGER") RangoDangerRed else Color.Gray,
-                                    fontSize = 6.5.sp,
+                                    fontSize = if (isLandscape) 6.5.sp else 8.sp,
                                     fontWeight = FontWeight.Black
                                 )
                             }
@@ -1093,11 +1095,11 @@ class OverlayService : Service() {
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("ROAD DECISION:", color = RangoTextMuted, fontSize = 6.sp, fontWeight = FontWeight.Bold)
+                                Text("ROAD DECISION:", color = RangoTextMuted, fontSize = if (isLandscape) 6.sp else 7.5.sp, fontWeight = FontWeight.Bold)
                                 Text(
                                     text = dtResult.finalRoadDecision,
                                     color = if (dtResult.finalRoadDecision == "CONTINUE") RangoLimeGreen else if (dtResult.finalRoadDecision == "REVERSAL") RangoDesertGold else Color.Gray,
-                                    fontSize = 6.5.sp,
+                                    fontSize = if (isLandscape) 6.5.sp else 8.sp,
                                     fontWeight = FontWeight.Black
                                 )
                             }
@@ -1106,24 +1108,24 @@ class OverlayService : Service() {
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("ROAD SIGNALS:", color = RangoTextMuted, fontSize = 5.5.sp, fontWeight = FontWeight.SemiBold)
+                                Text("ROAD SIGNALS:", color = RangoTextMuted, fontSize = if (isLandscape) 5.5.sp else 6.5.sp, fontWeight = FontWeight.SemiBold)
                                 Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Text(
                                         text = "BEB: ${dtResult.bigEyeBoySignal}",
                                         color = if (dtResult.bigEyeBoySignal == "RED") RangoDangerRed else if (dtResult.bigEyeBoySignal == "BLUE") Color(0xFF1E88E5) else Color.Gray,
-                                        fontSize = 5.5.sp,
+                                        fontSize = if (isLandscape) 5.5.sp else 6.5.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                     Text(
                                         text = "SR: ${dtResult.smallRoadSignal}",
                                         color = if (dtResult.smallRoadSignal == "RED") RangoDangerRed else if (dtResult.smallRoadSignal == "BLUE") Color(0xFF1E88E5) else Color.Gray,
-                                        fontSize = 5.5.sp,
+                                        fontSize = if (isLandscape) 5.5.sp else 6.5.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                     Text(
                                         text = "CR: ${dtResult.cockroachRoadSignal}",
                                         color = if (dtResult.cockroachRoadSignal == "RED") RangoDangerRed else if (dtResult.cockroachRoadSignal == "BLUE") Color(0xFF1E88E5) else Color.Gray,
-                                        fontSize = 5.5.sp,
+                                        fontSize = if (isLandscape) 5.5.sp else 6.5.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
@@ -1133,8 +1135,8 @@ class OverlayService : Service() {
                         Text(
                             text = dtResult.advice,
                             color = RangoTextWhite,
-                            fontSize = 6.5.sp,
-                            lineHeight = 8.sp,
+                            fontSize = if (isLandscape) 6.5.sp else 8.sp,
+                            lineHeight = if (isLandscape) 8.sp else 10.sp,
                             fontWeight = FontWeight.Medium,
                             modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)
                         )
@@ -1142,7 +1144,7 @@ class OverlayService : Service() {
                         // LAST ROUNDS Row for Dragon Tiger HUD
                         Column(
                             verticalArrangement = Arrangement.spacedBy(1.dp),
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 0.5.dp)
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -1152,39 +1154,39 @@ class OverlayService : Service() {
                                 Text(
                                     text = "LAST ROUNDS:",
                                     color = RangoTextMuted,
-                                    fontSize = 6.5.sp,
+                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                                 if (recentDtList.isEmpty()) {
                                     Text(
-                                        text = "None captured",
+                                        text = "None",
                                         color = Color.Gray,
-                                        fontSize = 6.sp,
+                                        fontSize = if (isLandscape) 6.sp else 7.sp,
                                         fontFamily = FontFamily.Monospace
                                     )
                                 } else {
                                     Row(
-                                        horizontalArrangement = Arrangement.spacedBy(1.5.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         recentDtList.take(8).forEach { round ->
                                             val (letter, color) = when (round.result) {
-                                                "D" -> "D" to Color(0xFF1E88E5) // Solid Blue for Dragon
-                                                "T" -> "T" to RangoDangerRed   // Solid Neon Red for Tiger
-                                                "X", "TIE", "P" -> "P" to Color(0xFF8E24AA) // Solid Purple for Tie
+                                                "D" -> "D" to Color(0xFF1E88E5) // Blue
+                                                "T" -> "T" to RangoDangerRed   // Red
+                                                "X", "TIE", "P" -> "P" to Color(0xFF8E24AA) // Purple
                                                 else -> round.result to Color.White
                                             }
                                             Box(
                                                 modifier = Modifier
-                                                    .size(9.dp)
-                                                    .clip(RoundedCornerShape(2.dp))
+                                                    .size(if (isLandscape) 9.dp else 11.dp)
+                                                    .clip(RoundedCornerShape(1.5.dp))
                                                     .background(color),
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Text(
                                                     text = letter,
                                                     color = Color.White,
-                                                    fontSize = 6.sp,
+                                                    fontSize = if (isLandscape) 5.5.sp else 7.sp,
                                                     fontWeight = FontWeight.Black,
                                                     fontFamily = FontFamily.Monospace
                                                 )
@@ -1195,93 +1197,126 @@ class OverlayService : Service() {
                             }
                         }
 
-                        HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 1.dp))
+                        HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 1.6.dp))
                         
                         // Manual entry buttons
                         Text(
                             text = "QUICK ENTRY RESULT",
                             color = RangoTextMuted,
-                            fontSize = 6.5.sp,
+                            fontSize = if (isLandscape) 6.sp else 7.5.sp,
                             fontWeight = FontWeight.Bold
                         )
                         
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
                         ) {
-                            Button(
-                                onClick = {
-                                    addDragonTigerRoundResult("D")
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = RangoLimeGreen),
-                                shape = RoundedCornerShape(3.dp),
-                                contentPadding = PaddingValues(0.dp),
-                                modifier = Modifier.weight(1.1f).height(16.dp)
+                            // Custom Dragon Button
+                            Box(
+                                modifier = Modifier
+                                    .weight(1.2f)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(RangoLimeGreen)
+                                    .clickable { addDragonTigerRoundResult("D") }
+                                    .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Text("🐉 DRAGON", color = Color.Black, fontSize = 6.sp, fontWeight = FontWeight.Black)
+                                Text(
+                                    text = "🐉 DRAGON",
+                                    color = Color.Black,
+                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
+                                    fontWeight = FontWeight.Black
+                                )
                             }
-                            Button(
-                                onClick = {
-                                    addDragonTigerRoundResult("X")
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8E24AA)),
-                                shape = RoundedCornerShape(3.dp),
-                                contentPadding = PaddingValues(0.dp),
-                                modifier = Modifier.weight(0.8f).height(16.dp)
+                            
+                            // Custom Tie Button
+                            Box(
+                                modifier = Modifier
+                                    .weight(0.9f)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xFF8E24AA))
+                                    .clickable { addDragonTigerRoundResult("X") }
+                                    .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Text("TIE", color = Color.White, fontSize = 6.sp, fontWeight = FontWeight.Black)
+                                Text(
+                                    text = "TIE",
+                                    color = Color.White,
+                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
+                                    fontWeight = FontWeight.Black
+                                )
                             }
-                            Button(
-                                onClick = {
-                                    addDragonTigerRoundResult("T")
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = RangoDangerRed),
-                                shape = RoundedCornerShape(3.dp),
-                                contentPadding = PaddingValues(0.dp),
-                                modifier = Modifier.weight(1.1f).height(16.dp)
+
+                            // Custom Tiger Button
+                            Box(
+                                modifier = Modifier
+                                    .weight(1.2f)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(RangoDangerRed)
+                                    .clickable { addDragonTigerRoundResult("T") }
+                                    .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Text("🐯 TIGER", color = Color.White, fontSize = 6.sp, fontWeight = FontWeight.Black)
+                                Text(
+                                    text = "🐯 TIGER",
+                                    color = Color.White,
+                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
+                                    fontWeight = FontWeight.Black
+                                )
                             }
                         }
 
                         // Undo & Reset controls row
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 1.dp),
-                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
                         ) {
-                            Button(
-                                onClick = {
-                                    deleteLastDragonTigerRound()
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray),
-                                shape = RoundedCornerShape(3.dp),
-                                contentPadding = PaddingValues(0.dp),
-                                modifier = Modifier.weight(1f).height(14.dp)
+                            // Custom Undo Button
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color.DarkGray)
+                                    .clickable { deleteLastDragonTigerRound() }
+                                    .padding(vertical = if (isLandscape) 4.dp else 5.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Text("↶ UNDO LAST", color = Color.White, fontSize = 5.5.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = "↶ UNDO",
+                                    color = Color.White,
+                                    fontSize = if (isLandscape) 5.5.sp else 7.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
-                            Button(
-                                onClick = {
-                                    clearAllDragonTigerRounds()
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828)),
-                                shape = RoundedCornerShape(3.dp),
-                                contentPadding = PaddingValues(0.dp),
-                                modifier = Modifier.weight(1f).height(14.dp)
+
+                            // Custom Reset Button
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xFFC62828))
+                                    .clickable { clearAllDragonTigerRounds() }
+                                    .padding(vertical = if (isLandscape) 4.dp else 5.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Text("🗑️ CLEAR ALL", color = Color.White, fontSize = 5.5.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = "🗑️ RESET",
+                                    color = Color.White,
+                                    fontSize = if (isLandscape) 5.5.sp else 7.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
 
-                        HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 1.dp))
+                        HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 1.6.dp))
 
                         // OCR/Start buttons for Dragon Tiger
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            Button(
-                                onClick = {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(if (isScanning) RangoDangerRed else RangoLimeGreen)
+                                .clickable {
                                     if (isScanning) {
                                         stopOcrScanning()
                                     } else {
@@ -1292,14 +1327,16 @@ class OverlayService : Service() {
                                          }
                                          startActivity(launchIntent)
                                     }
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = if (isScanning) RangoDangerRed else RangoLimeGreen),
-                                shape = RoundedCornerShape(3.dp),
-                                contentPadding = PaddingValues(0.dp),
-                                modifier = Modifier.fillMaxWidth().height(15.dp)
-                            ) {
-                                Text(if (isScanning) "STOP OCR" else "AUTO OCR", color = Color.Black, fontSize = 6.sp, fontWeight = FontWeight.Black)
-                            }
+                                }
+                                .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (isScanning) "STOP OCR" else "AUTO OCR",
+                                color = Color.Black,
+                                fontSize = if (isLandscape) 6.sp else 7.5.sp,
+                                fontWeight = FontWeight.Black
+                            )
                         }
                     } else {
                         // Heading trend status banner dynamically styled
@@ -1319,13 +1356,13 @@ class OverlayService : Service() {
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(3.dp))
                                 .background(Color.Black.copy(alpha = 0.35f))
-                                .padding(vertical = 1.dp, horizontal = 4.dp),
+                                .padding(vertical = 1.dp, horizontal = 3.dp),
                             contentAlignment = Alignment.CenterStart
                         ) {
                             Text(
                                 text = headingText,
                                 color = headingColor,
-                                fontSize = 9.5.sp,
+                                fontSize = if (isLandscape) 7.5.sp else 9.5.sp,
                                 fontWeight = FontWeight.Black
                             )
                         }
@@ -1368,7 +1405,7 @@ class OverlayService : Service() {
                                     value = "${String.format("%.1f", metrics.betFactor)}x base",
                                     bgColor = Color(0xFF33691E),
                                     valueColor = Color.White,
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.weight(1.3f)
                                 )
                                 BoxMetricItem(
                                     title = "TREND",
@@ -1391,8 +1428,8 @@ class OverlayService : Service() {
                         Text(
                             text = metrics.description,
                             color = RangoTextWhite,
-                            fontSize = 6.sp,
-                            lineHeight = 7.5.sp,
+                            fontSize = if (isLandscape) 5.sp else 6.sp,
+                            lineHeight = if (isLandscape) 6.5.sp else 7.5.sp,
                             fontWeight = FontWeight.Medium,
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 0.dp, vertical = 1.dp)
                         )
@@ -1408,13 +1445,13 @@ class OverlayService : Service() {
                             Text(
                                 "BALANCE:",
                                 color = RangoTextMuted,
-                                fontSize = 7.sp,
+                                fontSize = if (isLandscape) 6.sp else 7.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
                                 "PKR ${String.format("%.2f", doubleBalance)}",
                                 color = Color.White,
-                                fontSize = 8.5.sp,
+                                fontSize = if (isLandscape) 7.5.sp else 8.5.sp,
                                 fontWeight = FontWeight.Black,
                                 fontFamily = FontFamily.Monospace
                             )
@@ -1431,16 +1468,16 @@ class OverlayService : Service() {
 
                         Column(verticalArrangement = Arrangement.spacedBy(0.5.dp)) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("RISK:", color = RangoTextMuted, fontSize = 7.sp, fontWeight = FontWeight.Bold)
-                                Text(riskName, color = riskColor, fontSize = 7.sp, fontWeight = FontWeight.Black)
+                                Text("RISK:", color = RangoTextMuted, fontSize = if (isLandscape) 6.sp else 7.sp, fontWeight = FontWeight.Bold)
+                                Text(riskName, color = riskColor, fontSize = if (isLandscape) 6.sp else 7.sp, fontWeight = FontWeight.Black)
                             }
 
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("LAST:", color = RangoTextMuted, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                                Text("LAST:", color = RangoTextMuted, fontSize = if (isLandscape) 6.sp else 7.sp, fontWeight = FontWeight.Bold)
                                 Text(
                                     text = if (historyList.isEmpty()) "No rounds captured" else historyList.take(4).joinToString("  ") { df.format(it) },
                                     color = Color.White,
-                                    fontSize = 7.sp,
+                                    fontSize = if (isLandscape) 6.sp else 7.sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = FontFamily.Monospace,
                                     maxLines = 1,
@@ -1456,65 +1493,66 @@ class OverlayService : Service() {
                             Text(
                                 "⚡ LIVE SCANNER",
                                 color = RangoLimeGreen,
-                                fontSize = 7.sp,
+                                fontSize = if (isLandscape) 7.sp else 8.5.sp,
                                 fontWeight = FontWeight.ExtraBold
                             )
                             
                             // Tabs Row exactly like screenshot mockup
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(1.dp)
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
+                                horizontalArrangement = Arrangement.spacedBy(2.dp)
                             ) {
                                 // AUTO OCR TAB
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .clip(RoundedCornerShape(3.dp))
+                                        .clip(RoundedCornerShape(4.dp))
                                         .background(if (!isManualMode) RangoLimeGreen else RangoTealSky.copy(alpha = 0.2f))
                                         .clickable { 
                                             focusManager.clearFocus()
                                             isManualModeSelected.value = false 
                                         }
-                                        .padding(vertical = 1.5.dp),
+                                        .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
                                         "⚡ AUTO OCR",
                                         color = if (!isManualMode) Color.Black else RangoTextWhite,
-                                        fontSize = 6.5.sp,
+                                        fontSize = if (isLandscape) 6.sp else 7.5.sp,
                                         fontWeight = FontWeight.Black
                                       )
                                 }
-
+ 
                                 // MANUAL TAB
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .clip(RoundedCornerShape(3.dp))
+                                        .clip(RoundedCornerShape(4.dp))
                                         .background(if (isManualMode) RangoLimeGreen else RangoTealSky.copy(alpha = 0.2f))
                                         .clickable { 
                                             focusManager.clearFocus()
                                             isManualModeSelected.value = true 
                                         }
-                                        .padding(vertical = 1.5.dp),
+                                        .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
                                         "✏️ MANUAL",
                                         color = if (isManualMode) Color.Black else RangoTextWhite,
-                                        fontSize = 6.5.sp,
+                                        fontSize = if (isLandscape) 6.sp else 7.5.sp,
                                         fontWeight = FontWeight.Black
                                     )
                                 }
                             }
-
+ 
                             if (isManualMode) {
                                 // MANUAL INPUT SUBSECTION
                                 Text(
                                     "Enter multiplier:",
                                     color = RangoTextMuted,
-                                    fontSize = 7.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(top = 1.dp)
                                 )
                                 
                                 val inputText by manualMultiplierInput.collectAsState()
@@ -1522,15 +1560,15 @@ class OverlayService : Service() {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(18.dp)
-                                        .clip(RoundedCornerShape(3.dp))
+                                        .clip(RoundedCornerShape(4.dp))
                                         .background(Color.Black.copy(alpha = 0.4f))
                                         .clickable(
                                             interactionSource = remember { MutableInteractionSource() },
                                             indication = null
                                         ) {
                                             focusRequester.requestFocus()
-                                        },
+                                        }
+                                        .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
                                     contentAlignment = Alignment.CenterStart
                                 ) {
                                     BasicTextField(
@@ -1540,7 +1578,7 @@ class OverlayService : Service() {
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                         textStyle = LocalTextStyle.current.copy(
                                             color = RangoTextWhite,
-                                            fontSize = 10.sp,
+                                            fontSize = if (isLandscape) 9.sp else 11.sp,
                                             fontFamily = FontFamily.Monospace,
                                             textAlign = TextAlign.Center
                                         ),
@@ -1561,14 +1599,14 @@ class OverlayService : Service() {
                                             },
                                         decorationBox = { innerTextField ->
                                             Box(
-                                                modifier = Modifier.fillMaxSize().padding(3.dp),
+                                                modifier = Modifier.fillMaxWidth().padding(horizontal = 3.dp),
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 if (inputText.isEmpty()) {
                                                     Text(
                                                         "e.g. 1.85",
                                                         color = RangoTextMuted,
-                                                        fontSize = 10.sp,
+                                                        fontSize = if (isLandscape) 9.sp else 11.sp,
                                                         fontFamily = FontFamily.Monospace,
                                                         textAlign = TextAlign.Center
                                                     )
@@ -1579,25 +1617,33 @@ class OverlayService : Service() {
                                     )
                                 }
                                 
-                                Button(
-                                    onClick = {
-                                        val multiplierDouble = inputText.toDoubleOrNull()
-                                        if (multiplierDouble != null && multiplierDouble >= 1.0 && multiplierDouble <= 1000.0) {
-                                            manualMultiplierInput.value = ""
-                                            focusManager.clearFocus()
-                                            updateWindowFocus(false)
-                                            checkAndCommitDetectedValue(multiplierDouble, forceGemini = true)
-                                            captureLogs.value = "Manual added: ${multiplierDouble}x."
-                                        } else {
-                                            captureLogs.value = "Error: (1.0 - 1000)!"
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 2.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color(0xFF1E88E5))
+                                        .clickable {
+                                            val multiplierDouble = inputText.toDoubleOrNull()
+                                            if (multiplierDouble != null && multiplierDouble >= 1.0 && multiplierDouble <= 1000.0) {
+                                                manualMultiplierInput.value = ""
+                                                focusManager.clearFocus()
+                                                updateWindowFocus(false)
+                                                checkAndCommitDetectedValue(multiplierDouble, forceGemini = true)
+                                                captureLogs.value = "Manual added: ${multiplierDouble}x."
+                                            } else {
+                                                captureLogs.value = "Error: (1.0 - 1000)!"
+                                            }
                                         }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5)),
-                                    shape = RoundedCornerShape(3.dp),
-                                    contentPadding = PaddingValues(vertical = 0.dp),
-                                    modifier = Modifier.fillMaxWidth().height(18.dp)
+                                        .padding(vertical = if (isLandscape) 4.dp else 5.5.dp),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Text("✔️ SUBMIT & PREDICT", color = Color.White, fontSize = 7.sp, fontWeight = FontWeight.ExtraBold)
+                                    Text(
+                                        text = "✔️ SUBMIT & PREDICT",
+                                        color = Color.White,
+                                        fontSize = if (isLandscape) 6.sp else 7.5.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
                                 }
                             } else {
                                 // AUTO OCR SCAN CONTROL SUBSECTION
@@ -1605,53 +1651,53 @@ class OverlayService : Service() {
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(2.dp)
                                 ) {
-                                    Button(
-                                        onClick = { 
-                                            if (isScanning) {
-                                                stopOcrScanning()
-                                            } else {
-                                                captureLogs.value = "Launching Dashboard for Screen Auth..."
-                                                val launchIntent = Intent(this@OverlayService, MainActivity::class.java).apply {
-                                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                                                    putExtra("EXTRA_START_OCR_IMMEDIATELY", true)
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(if (isScanning) RangoDangerRed else RangoLimeGreen)
+                                            .clickable { 
+                                                if (isScanning) {
+                                                    stopOcrScanning()
+                                                } else {
+                                                    captureLogs.value = "Launching Dashboard for Screen Auth..."
+                                                    val launchIntent = Intent(this@OverlayService, MainActivity::class.java).apply {
+                                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                                                        putExtra("EXTRA_START_OCR_IMMEDIATELY", true)
+                                                    }
+                                                    startActivity(launchIntent)
                                                 }
-                                                startActivity(launchIntent)
                                             }
-                                        },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (isScanning) RangoDangerRed else RangoLimeGreen
-                                        ),
-                                        shape = RoundedCornerShape(3.dp),
-                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
-                                        modifier = Modifier.fillMaxWidth().height(18.dp)
+                                            .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
+                                        contentAlignment = Alignment.Center
                                     ) {
                                         Text(
-                                            if (isScanning) "STOP SCAN" else "START AUTO OCR",
+                                            text = if (isScanning) "STOP SCAN" else "START AUTO OCR",
                                             color = Color.Black,
-                                            fontSize = 7.sp,
+                                            fontSize = if (isLandscape) 6.sp else 7.5.sp,
                                             fontWeight = FontWeight.Black
                                         )
                                     }
                                 }
-
+ 
                                 // Scan Logs UI Box
                                 Text(
                                     text = logInfo,
                                     color = RangoTextMuted,
-                                    fontSize = 6.5.sp,
-                                    lineHeight = 8.sp,
+                                    fontSize = if (isLandscape) 6.sp else 7.sp,
+                                    lineHeight = if (isLandscape) 7.5.sp else 9.sp,
                                     textAlign = TextAlign.Center,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .background(Color.Black.copy(alpha = 0.4f))
-                                        .padding(1.5.dp)
+                                        .padding(2.5.dp)
                                 )
                             }
                         }
                     } // Ends Rango/Aviator else block
-
-                    HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 1.dp))
-
+ 
+                    HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 1.6.dp))
+ 
                     // Dynamic Gemini Cockpit Live Performance Panel
                     val liveAdvice by geminiAiAdvice.collectAsState()
                     val liveLoading by isGeminiLoading.collectAsState()
@@ -1662,26 +1708,40 @@ class OverlayService : Service() {
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(1.dp)
                         ) {
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { isGeminiExpanded = !isGeminiExpanded }
+                                    .padding(vertical = 1.5.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    "🔮 GEMINI AI RESPONSE",
-                                    color = RangoDesertGold,
-                                    fontSize = 8.sp,
-                                    fontWeight = FontWeight.Black
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isGeminiExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                        contentDescription = "Toggle Gemini Advice Expansion",
+                                        tint = RangoDesertGold,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Text(
+                                        "🔮 GEMINI AI RESPONSE",
+                                        color = RangoDesertGold,
+                                        fontSize = if (isLandscape) 7.5.sp else 8.5.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                }
                                 Icon(
                                     imageVector = Icons.Default.Refresh,
                                     contentDescription = "Manual Refresh Gemini Strategy Advice",
                                     tint = RangoLimeGreen,
                                     modifier = Modifier
-                                        .size(11.dp)
+                                        .size(12.dp)
                                         .clickable { triggerRealtimeGeminiPipeline(force = true) }
                                 )
                             }
@@ -1690,28 +1750,41 @@ class OverlayService : Service() {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    modifier = Modifier.padding(vertical = 1.5.dp)
+                                    modifier = Modifier.padding(vertical = 2.dp)
                                 ) {
-                                    CircularProgressIndicator(color = RangoLimeGreen, modifier = Modifier.size(8.dp), strokeWidth = 1.dp)
-                                    Text("Analyzing live...", color = RangoTextWhite, fontSize = 6.5.sp)
+                                    CircularProgressIndicator(color = RangoLimeGreen, modifier = Modifier.size(10.dp), strokeWidth = 1.2.dp)
+                                    Text("Analyzing live...", color = RangoTextWhite, fontSize = if (isLandscape) 6.sp else 7.5.sp)
                                 }
                             } else if (liveAdvice.isEmpty()) {
                                 Text(
                                     "Rounds add karo → auto analysis shuru ho",
                                     color = RangoTextWhite,
-                                    fontSize = 6.5.sp,
+                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.padding(vertical = 1.dp)
+                                    modifier = Modifier.padding(vertical = 1.5.dp)
                                 )
                             } else {
-                                Text(
-                                    text = liveAdvice,
-                                    color = RangoTextWhite,
-                                    fontSize = 6.5.sp,
-                                    lineHeight = 8.5.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    modifier = Modifier.padding(top = 1.5.dp)
-                                )
+                                if (isGeminiExpanded) {
+                                    Text(
+                                        text = liveAdvice,
+                                        color = RangoTextWhite,
+                                        fontSize = if (isLandscape) 6.sp else 7.5.sp,
+                                        lineHeight = if (isLandscape) 7.5.sp else 9.5.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        modifier = Modifier.fillMaxWidth().padding(top = 1.dp)
+                                    )
+                                } else {
+                                    Text(
+                                        text = liveAdvice,
+                                        color = RangoTextWhite,
+                                        fontSize = if (isLandscape) 6.sp else 7.5.sp,
+                                        lineHeight = if (isLandscape) 7.5.sp else 9.5.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        maxLines = 2,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        modifier = Modifier.fillMaxWidth().padding(top = 1.dp)
+                                    )
+                                }
                             }
                         }
                     }
