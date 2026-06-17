@@ -2026,7 +2026,17 @@ class OverlayService : Service() {
 
     private fun getSimplifiedAdviceDisplay(advice: String, game: String): Pair<String, String> {
         if (advice.isEmpty()) return Pair("", "")
-        if (advice.startsWith("⚠️") || advice.startsWith("Rate Limit") || advice.contains("Wait") || advice.contains("Please add") || advice.contains("limit reached") || advice.contains("Connection error") || advice.lowercase().contains("offline") || advice.lowercase().contains("local")) {
+        if (advice.startsWith("⚠️") || advice.contains("Please add")) {
+            val cleanMsg = advice.replace("⚠️", "").trim()
+            return Pair("NO API KEY ⚠️", cleanMsg)
+        }
+        if (advice.startsWith("Rate Limit") || advice.contains("Cooldown") || advice.contains("Wait")) {
+            return Pair("COOLDOWN ⏳", advice)
+        }
+        if (advice.contains("Connection error") || advice.contains("temporary limited") || advice.contains("limit reached")) {
+            return Pair("ERROR ⚠️", advice)
+        }
+        if (advice.lowercase().contains("offline") || advice.lowercase().contains("local")) {
             return Pair("RECOMMENDATION: STANDBY ⏳", "Waiting for online Gemini AI strategy advice...")
         }
         
