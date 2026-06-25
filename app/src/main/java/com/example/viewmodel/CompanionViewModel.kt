@@ -12,6 +12,10 @@ import com.example.data.CrashRepository
 import com.example.data.DragonTigerRound
 import com.example.data.DragonTigerDao
 import com.example.data.DragonTigerAnalyzer
+import com.example.data.AndarBaharRound
+import com.example.data.AndarBaharAnalyzer
+import com.example.data.SevenUpDownRound
+import com.example.data.SevenUpDownAnalyzer
 import com.example.api.GeminiClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -25,6 +29,8 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val repository: CrashRepository
     private val dtDao: DragonTigerDao
+    private val abDao: com.example.data.AndarBaharDao
+    private val sevenDao: com.example.data.SevenUpDownDao
     private val context = application.applicationContext
 
     private val _geminiApiKey = MutableStateFlow("")
@@ -37,6 +43,8 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
         val database = AppDatabase.getDatabase(application)
         repository = CrashRepository(database.crashDao())
         dtDao = database.dragonTigerDao()
+        abDao = database.andarBaharDao()
+        sevenDao = database.sevenUpDownDao()
         _geminiApiKey.value = com.example.util.SecurePrefs.getGeminiApiKey(context)
         
         // Load default game setting safely
@@ -92,6 +100,66 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
     fun clearDTRounds() {
         viewModelScope.launch {
             dtDao.clearAll()
+        }
+    }
+
+    val abRounds: StateFlow<List<AndarBaharRound>> = abDao.getAllRounds()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    val abResult: StateFlow<AndarBaharAnalyzer.ABResult> = abRounds
+        .map { rounds -> AndarBaharAnalyzer.analyze(rounds) }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = AndarBaharAnalyzer.analyze(emptyList())
+        )
+
+    fun addABRound(result: String) {
+        viewModelScope.launch {
+            abDao.insertRound(AndarBaharRound(result = result))
+            if (_geminiApiKey.value.isNotBlank()) {
+                refreshAiStrategy()
+            }
+        }
+    }
+
+    fun clearABRounds() {
+        viewModelScope.launch {
+            abDao.clearAll()
+        }
+    }
+
+    val sevenRounds: StateFlow<List<SevenUpDownRound>> = sevenDao.getAllRounds()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    val sevenResult: StateFlow<SevenUpDownAnalyzer.SevenResult> = sevenRounds
+        .map { rounds -> SevenUpDownAnalyzer.analyze(rounds) }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = SevenUpDownAnalyzer.analyze(emptyList())
+        )
+
+    fun addSevenRound(result: String) {
+        viewModelScope.launch {
+            sevenDao.insertRound(SevenUpDownRound(result = result))
+            if (_geminiApiKey.value.isNotBlank()) {
+                refreshAiStrategy()
+            }
+        }
+    }
+
+    fun clearSevenRounds() {
+        viewModelScope.launch {
+            sevenDao.clearAll()
         }
     }
 
@@ -180,68 +248,93 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
             val customKey = _geminiApiKey.value
             val balanceValue = userBalanceInput.value.toDoubleOrNull() ?: 280.89
 
-            val answer = if (game == "DRAGON_TIGER") {
-                val recentList = dtDao.getRecentRounds(30)
-                if (recentList.isEmpty()) {
-                    _aiAdviceText.value = "Lobby history is currently empty. Please log some Dragon Tiger rounds to begin analysis."
-                    _isLoadingAdvice.value = false
-                    return@launch
-                }
-                
-                val recent20 = recentList.take(20)
-                val dtResult = DragonTigerAnalyzer.analyze(recentList)
-                
-                val nonTieRounds = recentList.filter { it.result == "D" || it.result == "T" }
-                val chronologicalNonTies = nonTieRounds.reversed()
-                val columns = mutableListOf<MutableList<String>>()
-                for (round in chronologicalNonTies) {
-                    val res = round.result
-                    if (columns.isEmpty() || columns.last().first() != res) {
-                        columns.add(mutableListOf(res))
-                    } else {
-                        columns.last().add(res)
+            val answer = when (game) {
+                "DRAGON_TIGER" -> {
+                    val recentList = dtDao.getRecentRounds(30)
+                    if (recentList.isEmpty()) {
+                        _aiAdviceText.value = "Lobby history is currently empty. Please log some Dragon Tiger rounds to begin analysis."
+                        _isLoadingAdvice.value = false
+                        return@launch
                     }
-                }
-                val bigRoadStr = columns.joinToString(" | ") { col -> col.joinToString(",") }
-
-                val customPrompt = """
-                    You are an elite, professional Casino Dragon Tiger Game Analyzer.
                     
-                    CURRENT SESSION DATA:
-                    - Current Game Mode: DRAGON_TIGER
-                    - Wallet Balance: PKR $balanceValue
-                    - Last 20 Rounds (Newest first): ${recent20.joinToString(", ") { it.result }} (D=Dragon, T=Tiger, X/P/TIE=Tie)
+                    val recent20 = recentList.take(20)
+                    val dtResult = DragonTigerAnalyzer.analyze(recentList)
                     
-                    CASINO MULTI-ROAD MATRIX ANALYSIS:
-                    - Big Road Structure: $bigRoadStr
-                    - Big Eye Boy State: ${dtResult.bigEyeBoySignal} (RED = continuation, BLUE = reversal)
-                    - Small Road State: ${dtResult.smallRoadSignal} (RED = continuation, BLUE = reversal)
-                    - Cockroach Road State: ${dtResult.cockroachRoadSignal} (RED = continuation, BLUE = reversal)
-                    - Current Streak: ${dtResult.currentStreak} (Streak length: ${dtResult.streakCount})
-                    - Road Signals Summary: Big Eye Boy = ${dtResult.bigEyeBoySignal}, Small Road = ${dtResult.smallRoadSignal}, Cockroach = ${dtResult.cockroachRoadSignal}
-                    - Offline Road Voting Decision: ${dtResult.finalRoadDecision}
+                    val nonTieRounds = recentList.filter { it.result == "D" || it.result == "T" }
+                    val chronologicalNonTies = nonTieRounds.reversed()
+                    val columns = mutableListOf<MutableList<String>>()
+                    for (round in chronologicalNonTies) {
+                        val res = round.result
+                        if (columns.isEmpty() || columns.last().first() != res) {
+                            columns.add(mutableListOf(res))
+                        } else {
+                            columns.last().add(res)
+                        }
+                    }
+                    val bigRoadStr = columns.joinToString(" | ") { col -> col.joinToString(",") }
 
-                    Analyze this layout and formulate your tactical strategy.
-                    Your summary MUST address the following 5 points in a concise, bulleted format (maximum 60-70 words total, sharp and direct, no disclaimers):
-                    1. **Road Interpretation**: (Briefly analyze the pattern)
-                    2. **Opinion**: (Suggest Continuation or Reversal)
-                    3. **Risk**: (Assess Risk level)
-                    4. **Bankroll**: (Aggressive, conservative, or skip bet amount)
-                    5. **Reasoning**: (Short 1-sentence explanation)
-                """.trimIndent()
+                    val customPrompt = """
+                        You are an elite, professional Casino Dragon Tiger Game Analyzer.
+                        
+                        CURRENT SESSION DATA:
+                        - Current Game Mode: DRAGON_TIGER
+                        - Wallet Balance: PKR $balanceValue
+                        - Last 20 Rounds (Newest first): ${recent20.joinToString(", ") { it.result }} (D=Dragon, T=Tiger, X/P/TIE=Tie)
+                        
+                        CASINO MULTI-ROAD MATRIX ANALYSIS:
+                        - Big Road Structure: $bigRoadStr
+                        - Big Eye Boy State: ${dtResult.bigEyeBoySignal} (RED = continuation, BLUE = reversal)
+                        - Small Road State: ${dtResult.smallRoadSignal} (RED = continuation, BLUE = reversal)
+                        - Cockroach Road State: ${dtResult.cockroachRoadSignal} (RED = continuation, BLUE = reversal)
+                        - Current Streak: ${dtResult.currentStreak} (Streak length: ${dtResult.streakCount})
+                        - Road Signals Summary: Big Eye Boy = ${dtResult.bigEyeBoySignal}, Small Road = ${dtResult.smallRoadSignal}, Cockroach = ${dtResult.cockroachRoadSignal}
+                        - Offline Road Voting Decision: ${dtResult.finalRoadDecision}
 
-                GeminiClient.getStrategyAdvice(customPrompt, customKey)
-            } else {
-                val recentList = repository.getRecentLimit(15)
-                if (recentList.isEmpty()) {
-                    _aiAdviceText.value = "Lobby history is currently empty. Please log some round outcomes to get AI advisory support. (Lobby history khali hai!)"
-                    _isLoadingAdvice.value = false
-                    return@launch
+                        Analyze this layout and formulate your tactical strategy.
+                        Your summary MUST address the following 5 points in a concise, bulleted format (maximum 60-70 words total, sharp and direct, no disclaimers):
+                        1. **Road Interpretation**: (Briefly analyze the pattern)
+                        2. **Opinion**: (Suggest Continuation or Reversal)
+                        3. **Risk**: (Assess Risk level)
+                        4. **Bankroll**: (Aggressive, conservative, or skip bet amount)
+                        5. **Reasoning**: (Short 1-sentence explanation)
+                    """.trimIndent()
+
+                    GeminiClient.getStrategyAdvice(customPrompt, customKey)
                 }
-                val multipliersStr = recentList.joinToString(", ") { "${it.multiplier}x" }
-                val localStats = calculateLocalMetrics()
-                val trend = localStats.localRiskScore
-                GeminiClient.analyzeGame(customKey, game, multipliersStr, balanceValue, trend)
+                "ANDAR_BAHAR" -> {
+                    val recentList = abDao.getRecentRounds(30)
+                    if (recentList.isEmpty()) {
+                        _aiAdviceText.value = "Lobby history is currently empty. Please log some Andar Bahar rounds to begin analysis."
+                        _isLoadingAdvice.value = false
+                        return@launch
+                    }
+                    val dataStr = recentList.take(20).joinToString(", ") { it.result }
+                    val abResult = AndarBaharAnalyzer.analyze(recentList)
+                    GeminiClient.analyzeGame(customKey, "ANDAR_BAHAR", dataStr, balanceValue, abResult.trendLabel)
+                }
+                "SEVEN_UP_DOWN" -> {
+                    val recentList = sevenDao.getRecentRounds(30)
+                    if (recentList.isEmpty()) {
+                        _aiAdviceText.value = "Lobby history is currently empty. Please log some 7 Up Down rounds to begin analysis."
+                        _isLoadingAdvice.value = false
+                        return@launch
+                    }
+                    val dataStr = recentList.take(20).joinToString(", ") { it.result }
+                    val sevenResult = SevenUpDownAnalyzer.analyze(recentList)
+                    GeminiClient.analyzeGame(customKey, "SEVEN_UP_DOWN", dataStr, balanceValue, sevenResult.trendLabel)
+                }
+                else -> {
+                    val recentList = repository.getRecentLimit(15)
+                    if (recentList.isEmpty()) {
+                        _aiAdviceText.value = "Lobby history is currently empty. Please log some round outcomes to get AI advisory support. (Lobby history khali hai!)"
+                        _isLoadingAdvice.value = false
+                        return@launch
+                    }
+                    val multipliersStr = recentList.joinToString(", ") { "${it.multiplier}x" }
+                    val localStats = calculateLocalMetrics()
+                    val trend = localStats.localRiskScore
+                    GeminiClient.analyzeGame(customKey, game, multipliersStr, balanceValue, trend)
+                }
             }
 
             _aiAdviceText.value = answer

@@ -86,6 +86,26 @@ object GeminiClient {
                 REASON: [Short 1-sentence explanation of why]
             """.trimIndent()
             
+            "ANDAR_BAHAR" -> """
+                You are elite Andar Bahar card game advisor.
+                Recent results (newest first): $data (A=Andar, B=Bahar)
+                Balance: PKR $balance. Current trend: $trendLabel.
+                
+                Your response MUST be formatted exactly as below (maximum 2 lines total, extremely concise, sharp and direct, no disclaimers):
+                RECOMMENDATION: [ANDAR / BAHAR / STANDBY]
+                REASON: [Short 1-sentence explanation of why]
+            """.trimIndent()
+            
+            "SEVEN_UP_DOWN" -> """
+                You are elite 7 Up Down dice game advisor.
+                Recent results (newest first): $data (U=7 Up, D=7 Down, 7=Seven)
+                Balance: PKR $balance. Current trend: $trendLabel.
+                
+                Your response MUST be formatted exactly as below (maximum 2 lines total, extremely concise, sharp and direct, no disclaimers):
+                RECOMMENDATION: [UP / DOWN / SEVEN / STANDBY]
+                REASON: [Short 1-sentence explanation of why]
+            """.trimIndent()
+            
             else -> """
                 You are crash game advisor for $gameType.
                 Recent multipliers: $data

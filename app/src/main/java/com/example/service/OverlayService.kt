@@ -121,6 +121,8 @@ class OverlayService : Service() {
     // DB Repository
     private lateinit var repository: CrashRepository
     private lateinit var dtDao: DragonTigerDao
+    private lateinit var abDao: com.example.data.AndarBaharDao
+    private lateinit var sevenDao: com.example.data.SevenUpDownDao
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     
     // HUD setup
@@ -131,6 +133,8 @@ class OverlayService : Service() {
     private val overlayGame = MutableStateFlow("RANGO")
     private var autoHudMode = true
     private var recentDtRoundsList = MutableStateFlow<List<DragonTigerRound>>(emptyList())
+    private var recentAbRoundsList = MutableStateFlow<List<com.example.data.AndarBaharRound>>(emptyList())
+    private var recentSevenRoundsList = MutableStateFlow<List<com.example.data.SevenUpDownRound>>(emptyList())
     
     // Floating View States
     private var isExpanded = MutableStateFlow(false)
@@ -211,6 +215,8 @@ class OverlayService : Service() {
         val database = AppDatabase.getDatabase(this)
         repository = CrashRepository(database.crashDao())
         dtDao = database.dragonTigerDao()
+        abDao = database.andarBaharDao()
+        sevenDao = database.sevenUpDownDao()
         
         // Listen to Room updates to keep our recent items list in sync!
         serviceScope.launch {
@@ -227,6 +233,20 @@ class OverlayService : Service() {
         serviceScope.launch {
             dtDao.getAllRounds().collect { list ->
                 recentDtRoundsList.value = list.take(30)
+            }
+        }
+
+        // Listen to Andar Bahar updates
+        serviceScope.launch {
+            abDao.getAllRounds().collect { list ->
+                recentAbRoundsList.value = list.take(30)
+            }
+        }
+
+        // Listen to 7 Up Down updates
+        serviceScope.launch {
+            sevenDao.getAllRounds().collect { list ->
+                recentSevenRoundsList.value = list.take(30)
             }
         }
 
@@ -587,6 +607,54 @@ class OverlayService : Service() {
         }
     }
 
+    private fun addAndarBaharRoundResult(result: String) {
+        serviceScope.launch {
+            abDao.insertRound(com.example.data.AndarBaharRound(result = result))
+            captureLogs.value = "Result logged: $result"
+            triggerRealtimeGeminiPipeline(force = true)
+        }
+    }
+
+    private fun deleteLastAndarBaharRound() {
+        serviceScope.launch {
+            abDao.deleteLastRound()
+            captureLogs.value = "Last round undone"
+            triggerRealtimeGeminiPipeline(force = true)
+        }
+    }
+
+    private fun clearAllAndarBaharRounds() {
+        serviceScope.launch {
+            abDao.clearAll()
+            captureLogs.value = "All rounds cleared"
+            triggerRealtimeGeminiPipeline(force = true)
+        }
+    }
+
+    private fun addSevenUpDownRoundResult(result: String) {
+        serviceScope.launch {
+            sevenDao.insertRound(com.example.data.SevenUpDownRound(result = result))
+            captureLogs.value = "Result logged: $result"
+            triggerRealtimeGeminiPipeline(force = true)
+        }
+    }
+
+    private fun deleteLastSevenUpDownRound() {
+        serviceScope.launch {
+            sevenDao.deleteLastRound()
+            captureLogs.value = "Last round undone"
+            triggerRealtimeGeminiPipeline(force = true)
+        }
+    }
+
+    private fun clearAllSevenUpDownRounds() {
+        serviceScope.launch {
+            sevenDao.clearAll()
+            captureLogs.value = "All rounds cleared"
+            triggerRealtimeGeminiPipeline(force = true)
+        }
+    }
+
     data class LiveMetrics(
         val nextPrediction: Double,
         val cashout: Double,
@@ -758,6 +826,8 @@ class OverlayService : Service() {
         val overlayMode by currentHudMode.collectAsState()
         val currentGameVal by overlayGame.collectAsState()
         val recentDtList by recentDtRoundsList.collectAsState()
+        val recentAbList by recentAbRoundsList.collectAsState()
+        val recentSevenList by recentSevenRoundsList.collectAsState()
         
         val focusRequester = remember { FocusRequester() }
         val focusManager = LocalFocusManager.current
@@ -775,7 +845,7 @@ class OverlayService : Service() {
         val expandedWidthDp = if (isLandscape) 190.dp else 145.dp
         val expandedMaxHeightDp = (configuration.screenHeightDp * 0.65f).dp
 
-        var isGeminiExpanded by remember { mutableStateOf(true) }
+        var isGeminiExpanded by remember { mutableStateOf(false) }
 
         // Local Calculations
         val doubleBalance = balance.toDoubleOrNull() ?: 280.89
@@ -907,13 +977,19 @@ class OverlayService : Service() {
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        val emoji = if (currentGameVal == "DRAGON_TIGER") "🐉" else "✈️"
+                        val emoji = when (currentGameVal) {
+                            "DRAGON_TIGER" -> "🐉"
+                            "ANDAR_BAHAR" -> "🚪"
+                            "SEVEN_UP_DOWN" -> "🎲"
+                            else -> "✈️"
+                        }
                         Text(emoji, fontSize = 14.sp)
                         
-                        val lastR = if (currentGameVal == "DRAGON_TIGER") {
-                            recentDtList.firstOrNull()?.result ?: "D"
-                        } else {
-                            if (historyList.isNotEmpty()) "${historyList.first().toInt()}x" else "1x"
+                        val lastR = when (currentGameVal) {
+                            "DRAGON_TIGER" -> recentDtList.firstOrNull()?.result ?: "D"
+                            "ANDAR_BAHAR" -> recentAbList.firstOrNull()?.result ?: "A"
+                            "SEVEN_UP_DOWN" -> recentSevenList.firstOrNull()?.result ?: "U"
+                            else -> if (historyList.isNotEmpty()) "${historyList.first().toInt()}x" else "1x"
                         }
                         Text(
                             text = lastR,
@@ -930,11 +1006,22 @@ class OverlayService : Service() {
                             fontWeight = FontWeight.Bold
                         )
 
-                        val predChar = if (currentGameVal == "DRAGON_TIGER") {
-                            val dtAns = DragonTigerAnalyzer.analyze(recentDtList)
-                            if (dtAns.predictedNext == "DRAGON" || dtAns.predictedNext == "TIGER") dtAns.predictedNext.take(2) else "DR"
-                        } else {
-                            "CR"
+                        val predChar = when (currentGameVal) {
+                            "DRAGON_TIGER" -> {
+                                val dtAns = DragonTigerAnalyzer.analyze(recentDtList)
+                                if (dtAns.predictedNext == "DRAGON" || dtAns.predictedNext == "TIGER") dtAns.predictedNext.take(2) else "DR"
+                            }
+                            "ANDAR_BAHAR" -> {
+                                val abAns = com.example.data.AndarBaharAnalyzer.analyze(recentAbList)
+                                if (abAns.predictedNext == "ANDAR" || abAns.predictedNext == "BAHAR") abAns.predictedNext.take(2) else "AB"
+                            }
+                            "SEVEN_UP_DOWN" -> {
+                                val sevenAns = com.example.data.SevenUpDownAnalyzer.analyze(recentSevenList)
+                                if (sevenAns.predictedNext == "UP" || sevenAns.predictedNext == "DOWN" || sevenAns.predictedNext == "SEVEN") sevenAns.predictedNext.take(2) else "7U"
+                            }
+                            else -> {
+                                "CR"
+                            }
                         }
                         Text(
                             text = predChar,
@@ -950,10 +1037,11 @@ class OverlayService : Service() {
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = if (currentGameVal == "DRAGON_TIGER") {
-                                "Last: ${recentDtList.firstOrNull()?.result ?: "D"}"
-                            } else {
-                                "Last: ${historyList.firstOrNull() ?: 1.00}x"
+                            text = when (currentGameVal) {
+                                "DRAGON_TIGER" -> "Last: ${recentDtList.firstOrNull()?.result ?: "D"}"
+                                "ANDAR_BAHAR" -> "Last: ${recentAbList.firstOrNull()?.result ?: "A"}"
+                                "SEVEN_UP_DOWN" -> "Last: ${recentSevenList.firstOrNull()?.result ?: "U"}"
+                                else -> "Last: ${historyList.firstOrNull() ?: 1.00}x"
                             },
                             color = RangoTextWhite,
                             fontSize = 8.5.sp,
@@ -961,10 +1049,11 @@ class OverlayService : Service() {
                             fontFamily = FontFamily.Monospace
                         )
                         Text(
-                            text = if (currentGameVal == "DRAGON_TIGER") {
-                                DragonTigerAnalyzer.analyze(recentDtList).trendLabel.take(12)
-                            } else {
-                                metrics.trend
+                            text = when (currentGameVal) {
+                                "DRAGON_TIGER" -> DragonTigerAnalyzer.analyze(recentDtList).trendLabel.take(12)
+                                "ANDAR_BAHAR" -> com.example.data.AndarBaharAnalyzer.analyze(recentAbList).trendLabel.take(12)
+                                "SEVEN_UP_DOWN" -> com.example.data.SevenUpDownAnalyzer.analyze(recentSevenList).trendLabel.take(12)
+                                else -> metrics.trend
                             },
                             color = riskColor,
                             fontSize = 8.sp,
@@ -1288,6 +1377,517 @@ class OverlayService : Service() {
                                 fontSize = if (isLandscape) 6.sp else 7.5.sp,
                                 fontWeight = FontWeight.Black
                             )
+                        }
+                    } else if (currentGameVal == "ANDAR_BAHAR") {
+                        val abResult = com.example.data.AndarBaharAnalyzer.analyze(recentAbList)
+                        
+                        // Trend status banner
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(Color.Black.copy(alpha = 0.35f))
+                                .padding(vertical = 1.dp, horizontal = 3.dp),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            Text(
+                                text = "${abResult.trendEmoji} ${abResult.trendLabel}",
+                                color = when (abResult.riskLevel) {
+                                    "HIGH RISK" -> RangoDangerRed
+                                    "MED RISK" -> RangoDesertGold
+                                    else -> RangoLimeGreen
+                                },
+                                fontSize = if (isLandscape) 7.5.sp else 8.5.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                        
+                        // Prediction Grid
+                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(1.dp)
+                            ) {
+                                BoxMetricItem(
+                                    title = "NEXT BET",
+                                    value = abResult.suggestedBet,
+                                    bgColor = when {
+                                        abResult.suggestedBet.contains("ANDAR") -> Color(0xFF00796B)
+                                        abResult.suggestedBet.contains("BAHAR") -> Color(0xFFD84315)
+                                        else -> Color(0xFF37474F)
+                                    },
+                                    valueColor = Color.White,
+                                    modifier = Modifier.weight(1.3f)
+                                )
+                                BoxMetricItem(
+                                    title = "STREAK",
+                                    value = abResult.currentStreak,
+                                    bgColor = Color(0xFF0D47A1),
+                                    valueColor = Color.White,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(1.dp)
+                            ) {
+                                BoxMetricItem(
+                                    title = "ANDAR%",
+                                    value = "${abResult.andarPct}%",
+                                    bgColor = Color(0xFF004D40),
+                                    valueColor = Color.White,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                BoxMetricItem(
+                                    title = "BAHAR%",
+                                    value = "${abResult.baharPct}%",
+                                    bgColor = Color(0xFFBF360C),
+                                    valueColor = Color.White,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+
+                        // Local Advice Panel
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(0.5.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(Color.Black.copy(alpha = 0.4f))
+                                .padding(vertical = 1.5.dp, horizontal = 3.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("PREDICTED:", color = RangoTextMuted, fontSize = if (isLandscape) 6.sp else 7.5.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = abResult.predictedNext,
+                                    color = if (abResult.predictedNext == "ANDAR") Color(0xFF4DB6AC) else if (abResult.predictedNext == "BAHAR") Color(0xFFFF8A65) else Color.Gray,
+                                    fontSize = if (isLandscape) 6.5.sp else 8.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                        }
+
+                        // LAST ROUNDS Row
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(1.dp),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "LAST ROUNDS:",
+                                    color = RangoTextMuted,
+                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                if (recentAbList.isEmpty()) {
+                                    Text(
+                                        text = "None",
+                                        color = Color.Gray,
+                                        fontSize = if (isLandscape) 6.sp else 7.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                } else {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        recentAbList.take(8).forEach { round ->
+                                            val (letter, color) = when (round.result) {
+                                                "A" -> "A" to Color(0xFF00796B)
+                                                "B" -> "B" to Color(0xFFD84315)
+                                                else -> round.result to Color.White
+                                            }
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(if (isLandscape) 9.dp else 11.dp)
+                                                    .clip(RoundedCornerShape(1.5.dp))
+                                                    .background(color),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = letter,
+                                                    color = Color.White,
+                                                    fontSize = if (isLandscape) 5.5.sp else 7.sp,
+                                                    fontWeight = FontWeight.Black,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 1.6.dp))
+                        
+                        // Manual entry buttons
+                        Text(
+                            text = "QUICK ENTRY RESULT",
+                            color = RangoTextMuted,
+                            fontSize = if (isLandscape) 6.sp else 7.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            // Andar Button
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(RangoTealSky)
+                                    .clickable { addAndarBaharRoundResult("A") }
+                                    .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "🚪 ANDAR",
+                                    color = Color.Black,
+                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                            
+                            // Bahar Button
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(RangoDangerRed)
+                                    .clickable { addAndarBaharRoundResult("B") }
+                                    .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "🌌 BAHAR",
+                                    color = Color.White,
+                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                        }
+
+                        // Undo & Reset controls row
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            // Custom Undo Button
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color.DarkGray)
+                                    .clickable { deleteLastAndarBaharRound() }
+                                    .padding(vertical = if (isLandscape) 4.dp else 5.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "↶ UNDO",
+                                    color = Color.White,
+                                    fontSize = if (isLandscape) 5.5.sp else 7.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            // Custom Reset Button
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xFFC62828))
+                                    .clickable { clearAllAndarBaharRounds() }
+                                    .padding(vertical = if (isLandscape) 4.dp else 5.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "🗑️ RESET",
+                                    color = Color.White,
+                                    fontSize = if (isLandscape) 5.5.sp else 7.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    } else if (currentGameVal == "SEVEN_UP_DOWN") {
+                        val sevenResult = com.example.data.SevenUpDownAnalyzer.analyze(recentSevenList)
+                        
+                        // Trend status banner
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(Color.Black.copy(alpha = 0.35f))
+                                .padding(vertical = 1.dp, horizontal = 3.dp),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            Text(
+                                text = "${sevenResult.trendEmoji} ${sevenResult.trendLabel}",
+                                color = when (sevenResult.riskLevel) {
+                                    "HIGH RISK" -> RangoDangerRed
+                                    "MED RISK" -> RangoDesertGold
+                                    else -> RangoLimeGreen
+                                },
+                                fontSize = if (isLandscape) 7.5.sp else 8.5.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                        
+                        // Prediction Grid
+                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(1.dp)
+                            ) {
+                                BoxMetricItem(
+                                    title = "NEXT BET",
+                                    value = sevenResult.suggestedBet,
+                                    bgColor = when {
+                                        sevenResult.suggestedBet.contains("UP") -> Color(0xFF2E7D32)
+                                        sevenResult.suggestedBet.contains("DOWN") -> Color(0xFFC62828)
+                                        sevenResult.suggestedBet.contains("SEVEN") -> Color(0xFFEF6C00)
+                                        else -> Color(0xFF37474F)
+                                    },
+                                    valueColor = Color.White,
+                                    modifier = Modifier.weight(1.3f)
+                                )
+                                BoxMetricItem(
+                                    title = "STREAK",
+                                    value = sevenResult.currentStreak,
+                                    bgColor = Color(0xFF283593),
+                                    valueColor = Color.White,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(1.dp)
+                            ) {
+                                BoxMetricItem(
+                                    title = "UP %",
+                                    value = "${sevenResult.upPct}%",
+                                    bgColor = Color(0xFF1B5E20),
+                                    valueColor = Color.White,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                BoxMetricItem(
+                                    title = "DOWN %",
+                                    value = "${sevenResult.downPct}%",
+                                    bgColor = Color(0xFFB71C1C),
+                                    valueColor = Color.White,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                BoxMetricItem(
+                                    title = "7 %",
+                                    value = "${sevenResult.sevenPct}%",
+                                    bgColor = Color(0xFFE65100),
+                                    valueColor = Color.White,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+
+                        // Local Advice Panel
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(0.5.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(Color.Black.copy(alpha = 0.4f))
+                                .padding(vertical = 1.5.dp, horizontal = 3.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("PREDICTED:", color = RangoTextMuted, fontSize = if (isLandscape) 6.sp else 7.5.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = sevenResult.predictedNext,
+                                    color = if (sevenResult.predictedNext == "UP") Color(0xFF81C784) else if (sevenResult.predictedNext == "DOWN") Color(0xFFE57373) else if (sevenResult.predictedNext == "7" || sevenResult.predictedNext == "SEVEN") Color(0xFFFFB74D) else Color.Gray,
+                                    fontSize = if (isLandscape) 6.5.sp else 8.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                        }
+
+                        // LAST ROUNDS Row
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(1.dp),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "LAST ROUNDS:",
+                                    color = RangoTextMuted,
+                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                if (recentSevenList.isEmpty()) {
+                                    Text(
+                                        text = "None",
+                                        color = Color.Gray,
+                                        fontSize = if (isLandscape) 6.sp else 7.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                } else {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        recentSevenList.take(8).forEach { round ->
+                                            val (letter, color) = when (round.result) {
+                                                "U" -> "U" to Color(0xFF2E7D32)
+                                                "D" -> "D" to Color(0xFFC62828)
+                                                "7" -> "7" to Color(0xFFEF6C00)
+                                                else -> round.result to Color.White
+                                            }
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(if (isLandscape) 9.dp else 11.dp)
+                                                    .clip(RoundedCornerShape(1.5.dp))
+                                                    .background(color),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = letter,
+                                                    color = Color.White,
+                                                    fontSize = if (isLandscape) 5.5.sp else 7.sp,
+                                                    fontWeight = FontWeight.Black,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 1.6.dp))
+                        
+                        // Manual entry buttons
+                        Text(
+                            text = "QUICK ENTRY RESULT",
+                            color = RangoTextMuted,
+                            fontSize = if (isLandscape) 6.sp else 7.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            // UP Button
+                            Box(
+                                modifier = Modifier
+                                    .weight(1.2f)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(RangoLimeGreen)
+                                    .clickable { addSevenUpDownRoundResult("U") }
+                                    .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "📈 7 UP",
+                                    color = Color.Black,
+                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                            
+                            // 7 Button
+                            Box(
+                                modifier = Modifier
+                                    .weight(0.9f)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xFFEF6C00))
+                                    .clickable { addSevenUpDownRoundResult("7") }
+                                    .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "7",
+                                    color = Color.White,
+                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+
+                            // DOWN Button
+                            Box(
+                                modifier = Modifier
+                                    .weight(1.2f)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(RangoDangerRed)
+                                    .clickable { addSevenUpDownRoundResult("D") }
+                                    .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "📉 7 DN",
+                                    color = Color.White,
+                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                        }
+
+                        // Undo & Reset controls row
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            // Custom Undo Button
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color.DarkGray)
+                                    .clickable { deleteLastSevenUpDownRound() }
+                                    .padding(vertical = if (isLandscape) 4.dp else 5.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "↶ UNDO",
+                                    color = Color.White,
+                                    fontSize = if (isLandscape) 5.5.sp else 7.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            // Custom Reset Button
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xFFC62828))
+                                    .clickable { clearAllSevenUpDownRounds() }
+                                    .padding(vertical = if (isLandscape) 4.dp else 5.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "🗑️ RESET",
+                                    color = Color.White,
+                                    fontSize = if (isLandscape) 5.5.sp else 7.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     } else {
                         // Heading trend status banner dynamically styled
@@ -2152,61 +2752,84 @@ class OverlayService : Service() {
             isGeminiLoading.value = true
             
             try {
-                val adviceResult = if (game == "DRAGON_TIGER") {
-                    val recentList = recentDtRoundsList.value
-                    if (recentList.isEmpty()) {
-                        isGeminiLoading.value = false
-                        return@launch
-                    }
-                    val recent20 = recentList.take(20)
-                    val dtResult = DragonTigerAnalyzer.analyze(recentList)
-                    
-                    val nonTieRounds = recentList.filter { it.result == "D" || it.result == "T" }
-                    val chronologicalNonTies = nonTieRounds.reversed()
-                    val columns = mutableListOf<MutableList<String>>()
-                    for (round in chronologicalNonTies) {
-                        val res = round.result
-                        if (columns.isEmpty() || columns.last().first() != res) {
-                            columns.add(mutableListOf(res))
-                        } else {
-                            columns.last().add(res)
+                val adviceResult = when (game) {
+                    "DRAGON_TIGER" -> {
+                        val recentList = recentDtRoundsList.value
+                        if (recentList.isEmpty()) {
+                            isGeminiLoading.value = false
+                            return@launch
                         }
-                    }
-                    val bigRoadStr = columns.joinToString(" | ") { col -> col.joinToString(",") }
-
-                    val customPrompt = """
-                        You are an elite, professional Casino Dragon Tiger Game Analyzer.
+                        val recent20 = recentList.take(20)
+                        val dtResult = DragonTigerAnalyzer.analyze(recentList)
                         
-                        CURRENT SESSION DATA:
-                        - Current Game Mode: DRAGON_TIGER
-                        - Wallet Balance: PKR $currentBalance
-                        - Last 20 Rounds (Newest first): ${recent20.joinToString(", ") { it.result }} (D=Dragon, T=Tiger, X/P/TIE=Tie)
-                        
-                        CASINO MULTI-ROAD MATRIX ANALYSIS:
-                        - Big Road Structure: $bigRoadStr
-                        - Big Eye Boy State: ${dtResult.bigEyeBoySignal} (RED = continuation, BLUE = reversal)
-                        - Small Road State: ${dtResult.smallRoadSignal} (RED = continuation, BLUE = reversal)
-                        - Cockroach Road State: ${dtResult.cockroachRoadSignal} (RED = continuation, BLUE = reversal)
-                        - Current Streak: ${dtResult.currentStreak} (Streak length: ${dtResult.streakCount})
-                        - Road Signals Summary: Big Eye Boy = ${dtResult.bigEyeBoySignal}, Small Road = ${dtResult.smallRoadSignal}, Cockroach = ${dtResult.cockroachRoadSignal}
-                        - Offline Road Voting Decision: ${dtResult.finalRoadDecision}
+                        val nonTieRounds = recentList.filter { it.result == "D" || it.result == "T" }
+                        val chronologicalNonTies = nonTieRounds.reversed()
+                        val columns = mutableListOf<MutableList<String>>()
+                        for (round in chronologicalNonTies) {
+                            val res = round.result
+                            if (columns.isEmpty() || columns.last().first() != res) {
+                                columns.add(mutableListOf(res))
+                            } else {
+                                columns.last().add(res)
+                            }
+                        }
+                        val bigRoadStr = columns.joinToString(" | ") { col -> col.joinToString(",") }
 
-                        Analyze this layout and formulate your tactical strategy.
-                        Your response MUST be formatted exactly as below (maximum 2 lines total, extremely concise, sharp and direct, no disclaimers):
-                        RECOMMENDATION: [DRAGON / TIGER / TIE / STANDBY]
-                        REASON: [Short 1-sentence explanation of why]
-                    """.trimIndent()
+                        val customPrompt = """
+                            You are an elite, professional Casino Dragon Tiger Game Analyzer.
+                            
+                            CURRENT SESSION DATA:
+                            - Current Game Mode: DRAGON_TIGER
+                            - Wallet Balance: PKR $currentBalance
+                            - Last 20 Rounds (Newest first): ${recent20.joinToString(", ") { it.result }} (D=Dragon, T=Tiger, X/P/TIE=Tie)
+                            
+                            CASINO MULTI-ROAD MATRIX ANALYSIS:
+                            - Big Road Structure: $bigRoadStr
+                            - Big Eye Boy State: ${dtResult.bigEyeBoySignal} (RED = continuation, BLUE = reversal)
+                            - Small Road State: ${dtResult.smallRoadSignal} (RED = continuation, BLUE = reversal)
+                            - Cockroach Road State: ${dtResult.cockroachRoadSignal} (RED = continuation, BLUE = reversal)
+                            - Current Streak: ${dtResult.currentStreak} (Streak length: ${dtResult.streakCount})
+                            - Road Signals Summary: Big Eye Boy = ${dtResult.bigEyeBoySignal}, Small Road = ${dtResult.smallRoadSignal}, Cockroach = ${dtResult.cockroachRoadSignal}
+                            - Offline Road Voting Decision: ${dtResult.finalRoadDecision}
 
-                    com.example.api.GeminiClient.getStrategyAdvice(customPrompt, key)
-                } else {
-                    val recentList = recentMultipliersList.value.take(10)
-                    if (recentList.isEmpty()) {
-                        isGeminiLoading.value = false
-                        return@launch
+                            Analyze this layout and formulate your tactical strategy.
+                            Your response MUST be formatted exactly as below (maximum 2 lines total, extremely concise, sharp and direct, no disclaimers):
+                            RECOMMENDATION: [DRAGON / TIGER / TIE / STANDBY]
+                            REASON: [Short 1-sentence explanation of why]
+                        """.trimIndent()
+
+                        com.example.api.GeminiClient.getStrategyAdvice(customPrompt, key)
                     }
-                    val multipliersStr = recentList.joinToString(", ") { "${it}x" }
-                    val trend = calculateLiveMetrics(recentMultipliersList.value).trend
-                    com.example.api.GeminiClient.analyzeGame(key, game, multipliersStr, currentBalance, trend)
+                    "ANDAR_BAHAR" -> {
+                        val recentList = recentAbRoundsList.value
+                        if (recentList.isEmpty()) {
+                            isGeminiLoading.value = false
+                            return@launch
+                        }
+                        val dataStr = recentList.take(20).joinToString(", ") { it.result }
+                        val abResult = com.example.data.AndarBaharAnalyzer.analyze(recentList)
+                        com.example.api.GeminiClient.analyzeGame(key, "ANDAR_BAHAR", dataStr, currentBalance, abResult.trendLabel)
+                    }
+                    "SEVEN_UP_DOWN" -> {
+                        val recentList = recentSevenRoundsList.value
+                        if (recentList.isEmpty()) {
+                            isGeminiLoading.value = false
+                            return@launch
+                        }
+                        val dataStr = recentList.take(20).joinToString(", ") { it.result }
+                        val sevenResult = com.example.data.SevenUpDownAnalyzer.analyze(recentList)
+                        com.example.api.GeminiClient.analyzeGame(key, "SEVEN_UP_DOWN", dataStr, currentBalance, sevenResult.trendLabel)
+                    }
+                    else -> {
+                        val recentList = recentMultipliersList.value.take(10)
+                        if (recentList.isEmpty()) {
+                            isGeminiLoading.value = false
+                            return@launch
+                        }
+                        val multipliersStr = recentList.joinToString(", ") { "${it}x" }
+                        val trend = calculateLiveMetrics(recentMultipliersList.value).trend
+                        com.example.api.GeminiClient.analyzeGame(key, game, multipliersStr, currentBalance, trend)
+                    }
                 }
 
                 if (adviceResult.contains("API Server connection issue") || adviceResult.contains("Gemini API Key is missing")) {

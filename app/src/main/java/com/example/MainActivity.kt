@@ -129,7 +129,13 @@ class MainActivity : ComponentActivity() {
             } else {
                 startService(intent)
             }
-            val displayName = if (game == "DRAGON_TIGER") "Dragon Tiger" else if (game == "AVIATOR") "Aviator" else "Rango"
+            val displayName = when (game) {
+                "DRAGON_TIGER" -> "Dragon Tiger"
+                "ANDAR_BAHAR" -> "Andar Bahar"
+                "SEVEN_UP_DOWN" -> "7 Up Down"
+                "AVIATOR" -> "Aviator"
+                else -> "Rango"
+            }
             Toast.makeText(this, "$displayName Floating HUD Activated!", Toast.LENGTH_SHORT).show()
         }
     }

@@ -3,6 +3,7 @@ package com.example.ui
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -208,20 +209,22 @@ fun CompanionDashboard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(RangoHorizon)
+                    .horizontalScroll(androidx.compose.foundation.rememberScrollState())
                     .padding(vertical = 8.dp, horizontal = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 val gameList = listOf(
                     Triple("RANGO", "🎮 RANGO", RangoLimeGreen),
                     Triple("DRAGON_TIGER", "🐉 DRAGON TIGER", RangoDangerRed),
-                    Triple("AVIATOR", "✈️ AVIATOR", Color(0xFF1976D2))
+                    Triple("AVIATOR", "✈️ AVIATOR", Color(0xFF1976D2)),
+                    Triple("ANDAR_BAHAR", "🚪 ANDAR BAHAR", RangoTealSky),
+                    Triple("SEVEN_UP_DOWN", "🎲 7 UP DOWN", RangoDesertGold)
                 )
                 gameList.forEach { (type, label, labelColor) ->
                     val isSelected = currentGame == type
                     Box(
                         modifier = Modifier
-                            .weight(1f)
                             .clip(RoundedCornerShape(8.dp))
                             .background(
                                 if (isSelected) labelColor else Color.Black.copy(alpha = 0.5f)
@@ -229,13 +232,13 @@ fun CompanionDashboard(
                             .clickable {
                                 viewModel.setCurrentGame(type)
                             }
-                            .padding(vertical = 8.dp),
+                            .padding(vertical = 8.dp, horizontal = 16.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = label,
                             color = if (isSelected) Color.White else RangoTextMuted,
-                            fontSize = 8.5.sp,
+                            fontSize = 9.sp,
                             fontWeight = FontWeight.ExtraBold
                         )
                     }

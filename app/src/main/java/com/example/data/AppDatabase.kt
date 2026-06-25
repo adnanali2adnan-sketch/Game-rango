@@ -5,10 +5,12 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [CrashRound::class, DragonTigerRound::class], version = 2, exportSchema = false)
+@Database(entities = [CrashRound::class, DragonTigerRound::class, AndarBaharRound::class, SevenUpDownRound::class], version = 3, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun crashDao(): CrashDao
     abstract fun dragonTigerDao(): DragonTigerDao
+    abstract fun andarBaharDao(): AndarBaharDao
+    abstract fun sevenUpDownDao(): SevenUpDownDao
 
     companion object {
         @Volatile
