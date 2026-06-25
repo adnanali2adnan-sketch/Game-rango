@@ -2636,9 +2636,13 @@ class OverlayService : Service() {
 
     private fun getSimplifiedAdviceDisplay(advice: String, game: String): Pair<String, String> {
         if (advice.isEmpty()) return Pair("", "")
-        if (advice.startsWith("⚠️") || advice.contains("Please add")) {
+        if (advice.contains("Gemini API Key is missing") || advice.contains("missing") || advice.contains("Please add")) {
             val cleanMsg = advice.replace("⚠️", "").trim()
             return Pair("NO API KEY ⚠️", cleanMsg)
+        }
+        if (advice.startsWith("⚠️") || advice.contains("API Error") || advice.contains("Server connection issue")) {
+            val cleanMsg = advice.replace("⚠️", "").trim()
+            return Pair("API ERROR ❌", cleanMsg)
         }
         if (advice.startsWith("Rate Limit") || advice.contains("Cooldown") || advice.contains("Wait")) {
             return Pair("COOLDOWN ⏳", advice)
@@ -2846,12 +2850,8 @@ class OverlayService : Service() {
                 if (adviceResult.contains("Gemini API Key is missing")) {
                     geminiAiAdvice.value = "⚠️ Gemini API Key is missing. Please enter your Gemini API Key in the dashboard."
                 } else if (adviceResult.contains("API Server connection issue")) {
-                    val errorDetail = adviceResult.replace("API Server connection issue:", "").substringBefore("\n\nPlease check").trim()
-                    if (errorDetail.contains("429") || errorDetail.contains("Quota") || errorDetail.contains("limit")) {
-                        geminiAiAdvice.value = "⚠️ Connection is temporary limited (Rate-Limit / HTTP 429). Please check API key / limits."
-                    } else {
-                        geminiAiAdvice.value = "⚠️ API Error: $errorDetail"
-                    }
+                    val errorDetail = adviceResult.replace("API Server connection issue:", "").trim()
+                    geminiAiAdvice.value = "⚠️ API Error: $errorDetail"
                 } else {
                     geminiAiAdvice.value = adviceResult
                 }

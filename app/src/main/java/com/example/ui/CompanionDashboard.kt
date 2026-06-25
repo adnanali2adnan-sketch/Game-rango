@@ -38,6 +38,7 @@ import com.example.ui.theme.*
 import com.example.viewmodel.CompanionViewModel
 import com.example.viewmodel.LocalMetrics
 import java.text.DecimalFormat
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1394,6 +1395,11 @@ fun StrategicAiTab(
     ) {
         // Secure API Key Input Card
         var showPassword by remember { mutableStateOf(false) }
+        var localApiKey by remember(apiKey) { mutableStateOf(apiKey) }
+        var isTestingKey by remember { mutableStateOf(false) }
+        var testResult by remember { mutableStateOf<com.example.api.GeminiDebugReport?>(null) }
+        val scope = rememberCoroutineScope()
+
         ElevatedCard(
             colors = CardDefaults.elevatedCardColors(containerColor = RangoHorizon),
             shape = RoundedCornerShape(12.dp),
@@ -1415,8 +1421,8 @@ fun StrategicAiTab(
                     style = MaterialTheme.typography.bodySmall.copy(color = RangoTextMuted)
                 )
                 OutlinedTextField(
-                    value = apiKey,
-                    onValueChange = onApiKeyChange,
+                    value = localApiKey,
+                    onValueChange = { localApiKey = it },
                     label = { Text("Gemini API Key") },
                     colors = TextFieldDefaults.colors(
                         focusedTextColor = RangoTextWhite,
@@ -1437,6 +1443,74 @@ fun StrategicAiTab(
                         }
                     }
                 )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Button(
+                    onClick = {
+                        // Immediately save to SecurePrefs via VM
+                        onApiKeyChange(localApiKey)
+                        
+                        isTestingKey = true
+                        testResult = null
+                        scope.launch {
+                            val report = com.example.api.GeminiClient.testApiKey(localApiKey)
+                            testResult = report
+                            isTestingKey = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = RangoLimeGreen, contentColor = Color.Black),
+                    modifier = Modifier.fillMaxWidth().testTag("save_api_key_button"),
+                    enabled = !isTestingKey,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    if (isTestingKey) {
+                        CircularProgressIndicator(
+                            color = Color.Black,
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("SAVING & TESTING...", fontWeight = FontWeight.Bold)
+                    } else {
+                        Icon(imageVector = Icons.Default.Save, contentDescription = "Save Key Icon")
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("SAVE & TEST API KEY", fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                // Complete Debug Report Display
+                testResult?.let { report ->
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (report.isSuccess) Color(0xFF1B5E20).copy(alpha = 0.25f) else Color(0xFFB71C1C).copy(alpha = 0.25f)
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                if (report.isSuccess) "✅ API Key Working" else "❌ Exact Error: ${report.finalFailureReason}",
+                                color = if (report.isSuccess) Color(0xFF81C784) else Color(0xFFE57373),
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                            
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("📋 COMPLETE DEBUG REPORT:", color = RangoTextWhite, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                            Text("• Saved Key Length: ${report.savedKeyLength}", color = RangoTextMuted, style = MaterialTheme.typography.bodySmall)
+                            Text("• Key Loaded Successfully: ${report.keyLoadedSuccessfully}", color = RangoTextMuted, style = MaterialTheme.typography.bodySmall)
+                            Text("• Request Sent: ${report.requestSent}", color = RangoTextMuted, style = MaterialTheme.typography.bodySmall)
+                            Text("• HTTP Code: ${report.httpCode}", color = RangoTextMuted, style = MaterialTheme.typography.bodySmall)
+                            Text("• Response Body: ${report.responseBody}", color = RangoTextMuted, style = MaterialTheme.typography.bodySmall)
+                            Text("• Final Failure Reason: ${report.finalFailureReason}", color = RangoTextMuted, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
             }
         }
 
