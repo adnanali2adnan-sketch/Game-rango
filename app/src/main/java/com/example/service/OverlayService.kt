@@ -2750,7 +2750,8 @@ class OverlayService : Service() {
 
         lastGeminiCallTime = now
         serviceScope.launch {
-            val key = geminiApiKey.value
+            val key = com.example.util.SecurePrefs.getGeminiApiKey(this@OverlayService)
+            geminiApiKey.value = key
             val game = overlayGame.value
             val currentBalance = walletBalanceInput.value.toDoubleOrNull() ?: 280.89
 
@@ -2842,8 +2843,15 @@ class OverlayService : Service() {
                     }
                 }
 
-                if (adviceResult.contains("API Server connection issue") || adviceResult.contains("Gemini API Key is missing")) {
-                    geminiAiAdvice.value = "⚠️ Connection is temporary limited (Rate-Limit / HTTP 429). Please check API key."
+                if (adviceResult.contains("Gemini API Key is missing")) {
+                    geminiAiAdvice.value = "⚠️ Gemini API Key is missing. Please enter your Gemini API Key in the dashboard."
+                } else if (adviceResult.contains("API Server connection issue")) {
+                    val errorDetail = adviceResult.replace("API Server connection issue:", "").substringBefore("\n\nPlease check").trim()
+                    if (errorDetail.contains("429") || errorDetail.contains("Quota") || errorDetail.contains("limit")) {
+                        geminiAiAdvice.value = "⚠️ Connection is temporary limited (Rate-Limit / HTTP 429). Please check API key / limits."
+                    } else {
+                        geminiAiAdvice.value = "⚠️ API Error: $errorDetail"
+                    }
                 } else {
                     geminiAiAdvice.value = adviceResult
                 }
