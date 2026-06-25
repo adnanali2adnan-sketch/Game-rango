@@ -390,12 +390,16 @@ class OverlayService : Service() {
             private var initialTouchY = 0f
             private var isDragging = false
             private val touchSlop = 15 // px
+            private var isTouchInHeader = false
 
             override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
                 if (ev.action == MotionEvent.ACTION_DOWN) {
                     if (isManualModeSelected.value) {
                         updateWindowFocus(true)
                     }
+                    val density = resources.displayMetrics.density
+                    val headerHeightPx = 40f * density
+                    isTouchInHeader = ev.y <= headerHeightPx
                 }
                 when (ev.action) {
                     MotionEvent.ACTION_DOWN -> {
@@ -409,11 +413,13 @@ class OverlayService : Service() {
                         }
                     }
                     MotionEvent.ACTION_MOVE -> {
-                        val dx = ev.rawX - initialTouchX
-                        val dy = ev.rawY - initialTouchY
-                        if (Math.abs(dx) > touchSlop || Math.abs(dy) > touchSlop) {
-                            isDragging = true
-                            return true // Intercept! Cancel goes to ComposeView.
+                        if (isTouchInHeader) {
+                            val dx = ev.rawX - initialTouchX
+                            val dy = ev.rawY - initialTouchY
+                            if (Math.abs(dx) > touchSlop || Math.abs(dy) > touchSlop) {
+                                isDragging = true
+                                return true // Intercept! Cancel goes to ComposeView.
+                            }
                         }
                     }
                 }
@@ -843,7 +849,11 @@ class OverlayService : Service() {
         val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
         val expandedWidthDp = if (isLandscape) 190.dp else 145.dp
-        val expandedMaxHeightDp = (configuration.screenHeightDp * 0.65f).dp
+        val expandedMaxHeightDp = if (isLandscape) {
+            (configuration.screenHeightDp * 0.95f).dp
+        } else {
+            (configuration.screenHeightDp * 0.65f).dp
+        }
 
         var isGeminiExpanded by remember { mutableStateOf(false) }
 
