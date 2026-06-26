@@ -2647,7 +2647,7 @@ class OverlayService : Service() {
         if (advice.startsWith("Rate Limit") || advice.contains("Cooldown") || advice.contains("Wait")) {
             return Pair("COOLDOWN ⏳", advice)
         }
-        if (advice.contains("Connection error") || advice.contains("temporary limited") || advice.contains("limit reached")) {
+        if (advice.contains("Connection error") || advice.contains("limit reached")) {
             return Pair("ERROR ⚠️", advice)
         }
         if (advice.lowercase().contains("offline") || advice.lowercase().contains("local")) {

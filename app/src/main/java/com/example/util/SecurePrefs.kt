@@ -22,4 +22,9 @@ object SecurePrefs {
             ""
         }
     }
+
+    fun clearGeminiApiKey(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().remove(KEY_GEMINI_API_KEY).apply()
+    }
 }

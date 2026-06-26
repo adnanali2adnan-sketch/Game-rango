@@ -4,6 +4,8 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -285,6 +287,7 @@ fun CompanionDashboard(
                             isLoading = isLoadingAdvice,
                             apiKey = apiKey,
                             onApiKeyChange = { viewModel.setGeminiApiKey(it) },
+                            onClearApiKey = { viewModel.clearGeminiApiKey() },
                             onRefresh = { viewModel.refreshAiStrategy() }
                         )
                     }
@@ -1386,19 +1389,31 @@ fun StrategicAiTab(
     isLoading: Boolean,
     apiKey: String,
     onApiKeyChange: (String) -> Unit,
+    onClearApiKey: () -> Unit = {},
     onRefresh: () -> Unit
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
         // Secure API Key Input Card
         var showPassword by remember { mutableStateOf(false) }
         var localApiKey by remember(apiKey) { mutableStateOf(apiKey) }
-        var isTestingKey by remember { mutableStateOf(false) }
+        var isSavingAndTesting by remember { mutableStateOf(false) }
+        var isTestingValidation by remember { mutableStateOf(false) }
+        var isTestingRawHello by remember { mutableStateOf(false) }
+        val isAnyTesting = isSavingAndTesting || isTestingValidation || isTestingRawHello
+
         var testResult by remember { mutableStateOf<com.example.api.GeminiDebugReport?>(null) }
+        val liveReport by com.example.api.GeminiClient.latestReport.collectAsStateWithLifecycle()
         val scope = rememberCoroutineScope()
+        val context = androidx.compose.ui.platform.LocalContext.current
+
+        val decryptedSharedPrefKey = remember(apiKey, localApiKey) { com.example.util.SecurePrefs.getGeminiApiKey(context) }
+        val truncatedSharedPrefKey = if (decryptedSharedPrefKey.length >= 16) "${decryptedSharedPrefKey.take(8)}...${decryptedSharedPrefKey.takeLast(8)}" else decryptedSharedPrefKey
+        val memoryKeyTruncated = if (apiKey.length >= 16) "${apiKey.take(8)}...${apiKey.takeLast(8)}" else apiKey
 
         ElevatedCard(
             colors = CardDefaults.elevatedCardColors(containerColor = RangoHorizon),
@@ -1444,27 +1459,69 @@ fun StrategicAiTab(
                     }
                 )
 
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Profile Sync Status & Live Checks
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.25f)),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            "🔍 LIVE KEY INTEGRITY AUDIT",
+                            style = MaterialTheme.typography.labelSmall.copy(color = RangoLimeGreen, fontWeight = FontWeight.Bold)
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column {
+                                Text("📁 SecurePrefs Key:", style = MaterialTheme.typography.bodySmall.copy(color = RangoTextMuted, fontSize = androidx.compose.ui.unit.TextUnit.Unspecified))
+                                Text(
+                                    text = if (decryptedSharedPrefKey.isNotEmpty()) "$truncatedSharedPrefKey (${decryptedSharedPrefKey.length} chars)" else "Not Configured (Empty)",
+                                    color = if (decryptedSharedPrefKey.isNotEmpty()) RangoTextWhite else Color(0xFFE57373),
+                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text("🧠 ViewModel Memory:", style = MaterialTheme.typography.bodySmall.copy(color = RangoTextMuted, fontSize = androidx.compose.ui.unit.TextUnit.Unspecified))
+                                Text(
+                                    text = if (apiKey.isNotEmpty()) "$memoryKeyTruncated (${apiKey.length} chars)" else "Not Loaded (Empty)",
+                                    color = if (apiKey.isNotEmpty()) RangoTextWhite else Color(0xFFE57373),
+                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold)
+                                )
+                            }
+                        }
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(6.dp))
 
+                // SAVE & TEST button
                 Button(
                     onClick = {
                         // Immediately save to SecurePrefs via VM
                         onApiKeyChange(localApiKey)
                         
-                        isTestingKey = true
+                        isSavingAndTesting = true
                         testResult = null
                         scope.launch {
                             val report = com.example.api.GeminiClient.testApiKey(localApiKey)
                             testResult = report
-                            isTestingKey = false
+                            isSavingAndTesting = false
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = RangoLimeGreen, contentColor = Color.Black),
                     modifier = Modifier.fillMaxWidth().testTag("save_api_key_button"),
-                    enabled = !isTestingKey,
+                    enabled = !isAnyTesting,
                     shape = RoundedCornerShape(8.dp)
                 ) {
-                    if (isTestingKey) {
+                    if (isSavingAndTesting) {
                         CircularProgressIndicator(
                             color = Color.Black,
                             modifier = Modifier.size(18.dp),
@@ -1479,35 +1536,179 @@ fun StrategicAiTab(
                     }
                 }
 
-                // Complete Debug Report Display
-                testResult?.let { report ->
+                // Dedicated simple "Hello" validation test button
+                Button(
+                    onClick = {
+                        onApiKeyChange(localApiKey)
+                        isTestingValidation = true
+                        testResult = null
+                        scope.launch {
+                            val report = com.example.api.GeminiClient.testSimpleHello(localApiKey)
+                            testResult = report
+                            isTestingValidation = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = RangoDesertGold, contentColor = Color.Black),
+                    modifier = Modifier.fillMaxWidth().testTag("api_validation_test_button"),
+                    enabled = !isAnyTesting,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    if (isTestingValidation) {
+                        CircularProgressIndicator(
+                            color = Color.Black,
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("TESTING VALIDATION...", fontWeight = FontWeight.Bold)
+                    } else {
+                        Icon(imageVector = Icons.Default.CheckCircle, contentDescription = "Validation Icon")
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("API VALIDATION TEST (PROMPT: \"HELLO\")", fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                // Raw Hello Test Button
+                Button(
+                    onClick = {
+                        onApiKeyChange(localApiKey)
+                        isTestingRawHello = true
+                        testResult = null
+                        scope.launch {
+                            val report = com.example.api.GeminiClient.testRawHello(localApiKey)
+                            testResult = report
+                            isTestingRawHello = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF29B6F6), contentColor = Color.Black),
+                    modifier = Modifier.fillMaxWidth().testTag("raw_hello_test_button"),
+                    enabled = !isAnyTesting,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    if (isTestingRawHello) {
+                        CircularProgressIndicator(
+                            color = Color.Black,
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("RUNNING RAW HELLO TEST...", fontWeight = FontWeight.Bold)
+                    } else {
+                        Icon(imageVector = Icons.Default.BugReport, contentDescription = "Debug Icon")
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("RAW HELLO TEST (JSON RESPONSE)", fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                // Clear Saved API Key Button
+                Button(
+                    onClick = {
+                        onClearApiKey()
+                        localApiKey = ""
+                        testResult = null
+                        onRefresh()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828), contentColor = Color.White),
+                    modifier = Modifier.fillMaxWidth().testTag("clear_api_key_button"),
+                    enabled = !isAnyTesting,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(imageVector = Icons.Default.Delete, contentDescription = "Clear Icon")
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("CLEAR SAVED API KEY & RELOAD", fontWeight = FontWeight.Bold)
+                }
+
+                // Complete Debug & Diagnostics Report Display
+                val activeReport = testResult ?: if (liveReport.requestSent != "No") liveReport else null
+                activeReport?.let { report ->
                     Spacer(modifier = Modifier.height(8.dp))
                     Card(
                         colors = CardDefaults.cardColors(
-                            containerColor = if (report.isSuccess) Color(0xFF1B5E20).copy(alpha = 0.25f) else Color(0xFFB71C1C).copy(alpha = 0.25f)
+                            containerColor = if (report.isSuccess) Color(0xFF1B5E20).copy(alpha = 0.35f) else Color(0xFFB71C1C).copy(alpha = 0.35f)
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (report.isSuccess) Color(0xFF81C784).copy(alpha = 0.5f) else Color(0xFFE57373).copy(alpha = 0.5f)
                         ),
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(
                             modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Text(
-                                if (report.isSuccess) "✅ API Key Working" else "❌ Exact Error: ${report.finalFailureReason}",
+                                if (report.isSuccess) "✅ AUDIT: API Key Working Successfully" else "❌ AUDIT: Connection / Config Issue",
                                 color = if (report.isSuccess) Color(0xFF81C784) else Color(0xFFE57373),
                                 fontWeight = FontWeight.Bold,
                                 style = MaterialTheme.typography.titleSmall
                             )
                             
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text("📋 COMPLETE DEBUG REPORT:", color = RangoTextWhite, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
-                            Text("• Saved Key Length: ${report.savedKeyLength}", color = RangoTextMuted, style = MaterialTheme.typography.bodySmall)
-                            Text("• Key Loaded Successfully: ${report.keyLoadedSuccessfully}", color = RangoTextMuted, style = MaterialTheme.typography.bodySmall)
+                            Text("📋 DETAILED DIAGNOSTICS:", color = RangoTextWhite, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                            Text("• API Key Detected: ${if (report.savedKeyLength > 0) "Yes (${report.savedKeyLength} chars)" else "No"}", color = RangoTextMuted, style = MaterialTheme.typography.bodySmall)
+                            Text("• Endpoint Used: ${report.endpointUsed}", color = RangoTextMuted, style = MaterialTheme.typography.bodySmall)
+                            Text("• Model Used: ${report.modelNameUsed}", color = RangoTextMuted, style = MaterialTheme.typography.bodySmall)
                             Text("• Request Sent: ${report.requestSent}", color = RangoTextMuted, style = MaterialTheme.typography.bodySmall)
-                            Text("• HTTP Code: ${report.httpCode}", color = RangoTextMuted, style = MaterialTheme.typography.bodySmall)
-                            Text("• Response Body: ${report.responseBody}", color = RangoTextMuted, style = MaterialTheme.typography.bodySmall)
+                            Text("• HTTP Status Code: ${report.httpCode}", color = RangoTextMuted, style = MaterialTheme.typography.bodySmall)
+                            Text("• Headers Mapped: ${report.headersUsed}", color = RangoTextMuted, style = MaterialTheme.typography.bodySmall)
+                            Text("• Error Message: ${report.errorMessage}", color = RangoTextMuted, style = MaterialTheme.typography.bodySmall)
                             Text("• Final Failure Reason: ${report.finalFailureReason}", color = RangoTextMuted, style = MaterialTheme.typography.bodySmall)
+                            Text("• Total Request Count: ${report.totalRequestsCount}", color = RangoTextMuted, style = MaterialTheme.typography.bodySmall)
+                            
+                            val originLabel = when (report.rateLimitSource) {
+                                "APP" -> "📱 App-Side Local Throttle (Preventing key/billing spam)"
+                                "SERVER" -> "☁️ Gemini API Server 429 (Too Many Requests / Quota Exhausted)"
+                                else -> "N/A"
+                            }
+                            if (report.rateLimitSource != "N/A") {
+                                Text("• Rate Limit Origin: $originLabel", color = if (report.rateLimitSource == "APP") Color(0xFFFFB74D) else Color(0xFFE57373), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                            }
+                            
+                            Spacer(modifier = Modifier.height(6.dp))
+                            
+                            Text("📡 SENT PAYLOAD:", color = RangoLimeGreen, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.4f)),
+                                shape = RoundedCornerShape(4.dp),
+                                modifier = Modifier.fillMaxWidth()
+                             ) {
+                                 Box(modifier = Modifier.padding(6.dp)) {
+                                     androidx.compose.foundation.text.selection.SelectionContainer {
+                                         Text(
+                                             text = report.requestPayload,
+                                             fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                             color = Color(0xFFA5D6A7),
+                                             style = MaterialTheme.typography.bodySmall
+                                         )
+                                     }
+                                 }
+                             }
+
+                             Spacer(modifier = Modifier.height(4.dp))
+
+                             Text("📥 RECEIVED RESPONSE BODY:", color = RangoLimeGreen, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
+                             Card(
+                                 colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.4f)),
+                                 shape = RoundedCornerShape(4.dp),
+                                 modifier = Modifier.fillMaxWidth()
+                             ) {
+                                 Box(
+                                     modifier = Modifier
+                                         .padding(6.dp)
+                                         .heightIn(max = 200.dp)
+                                         .verticalScroll(rememberScrollState())
+                                 ) {
+                                     androidx.compose.foundation.text.selection.SelectionContainer {
+                                         Text(
+                                             text = report.responseBody,
+                                             fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                             color = Color(0xFF90CAF9),
+                                             style = MaterialTheme.typography.bodySmall
+                                         )
+                                     }
+                                 }
+                             }
                         }
                     }
                 }

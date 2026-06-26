@@ -57,6 +57,11 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
         com.example.util.SecurePrefs.saveGeminiApiKey(context, key)
     }
 
+    fun clearGeminiApiKey() {
+        _geminiApiKey.value = ""
+        com.example.util.SecurePrefs.clearGeminiApiKey(context)
+    }
+
     fun setCurrentGame(game: String) {
         _currentGame.value = game
         context.getSharedPreferences("RangoPrefs", Context.MODE_PRIVATE)
@@ -291,12 +296,9 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
                         - Offline Road Voting Decision: ${dtResult.finalRoadDecision}
 
                         Analyze this layout and formulate your tactical strategy.
-                        Your summary MUST address the following 5 points in a concise, bulleted format (maximum 60-70 words total, sharp and direct, no disclaimers):
-                        1. **Road Interpretation**: (Briefly analyze the pattern)
-                        2. **Opinion**: (Suggest Continuation or Reversal)
-                        3. **Risk**: (Assess Risk level)
-                        4. **Bankroll**: (Aggressive, conservative, or skip bet amount)
-                        5. **Reasoning**: (Short 1-sentence explanation)
+                        Your response MUST be formatted exactly as below (maximum 2 lines total, extremely concise, sharp and direct, no disclaimers):
+                        RECOMMENDATION: [DRAGON / TIGER / TIE / STANDBY]
+                        REASON: [Short 1-sentence explanation of why]
                     """.trimIndent()
 
                     GeminiClient.getStrategyAdvice(customPrompt, customKey)
