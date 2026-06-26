@@ -19,6 +19,12 @@ interface SevenUpDownDao {
     @Query("DELETE FROM seven_up_down_rounds")
     suspend fun clearAll()
 
+    @Query("DELETE FROM seven_up_down_rounds WHERE id = :roundId")
+    suspend fun deleteRound(roundId: Int)
+
+    @Query("UPDATE seven_up_down_rounds SET isWin = :isWin WHERE id = :roundId")
+    suspend fun updateRoundStatus(roundId: Int, isWin: Boolean?)
+
     @Query("DELETE FROM seven_up_down_rounds WHERE id = (SELECT id FROM seven_up_down_rounds ORDER BY timestamp DESC LIMIT 1)")
     suspend fun deleteLastRound()
 }

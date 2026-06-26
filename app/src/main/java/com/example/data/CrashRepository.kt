@@ -13,6 +13,14 @@ class CrashRepository(private val crashDao: CrashDao) {
         crashDao.clearAll()
     }
 
+    suspend fun deleteRound(id: Int) {
+        crashDao.deleteRound(id)
+    }
+
+    suspend fun updateRoundStatus(id: Int, isWin: Boolean?) {
+        crashDao.updateRoundStatus(id, isWin)
+    }
+
     suspend fun getRecentLimit(limit: Int): List<CrashRound> {
         return crashDao.getRecentRounds(limit)
     }

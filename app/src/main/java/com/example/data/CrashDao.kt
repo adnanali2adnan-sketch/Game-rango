@@ -17,6 +17,12 @@ interface CrashDao {
     @Query("DELETE FROM crash_rounds")
     suspend fun clearAll()
 
+    @Query("DELETE FROM crash_rounds WHERE id = :roundId")
+    suspend fun deleteRound(roundId: Int)
+
+    @Query("UPDATE crash_rounds SET isWin = :isWin WHERE id = :roundId")
+    suspend fun updateRoundStatus(roundId: Int, isWin: Boolean?)
+
     @Query("SELECT * FROM crash_rounds ORDER BY timestamp DESC LIMIT :limit")
     suspend fun getRecentRounds(limit: Int): List<CrashRound>
 }

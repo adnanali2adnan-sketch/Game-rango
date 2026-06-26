@@ -93,9 +93,59 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
             initialValue = DragonTigerAnalyzer.analyze(emptyList())
         )
 
+    private fun parseAiRecommendation(adviceText: String): String {
+        if (adviceText.contains("RECOMMENDATION:", ignoreCase = true)) {
+            val rec = adviceText.substringAfter("RECOMMENDATION:")
+                .substringBefore("\n")
+                .trim()
+                .uppercase()
+            val clean = rec.replace("[", "").replace("]", "").trim()
+            if (clean.contains("DRAGON") || clean == "D") return "DRAGON"
+            if (clean.contains("TIGER") || clean == "T") return "TIGER"
+            if (clean.contains("ANDAR") || clean == "A") return "ANDAR"
+            if (clean.contains("BAHAR") || clean == "B") return "BAHAR"
+            if (clean.contains("UP") || clean == "U") return "UP"
+            if (clean.contains("DOWN") || clean == "D") return "DOWN"
+            if (clean.contains("SEVEN") || clean == "7") return "SEVEN"
+        }
+        return "UNCERTAIN"
+    }
+
+    private fun parseCrashAiTarget(adviceText: String): Double? {
+        if (adviceText.contains("RECOMMENDATION:", ignoreCase = true)) {
+            val rec = adviceText.substringAfter("RECOMMENDATION:")
+                .substringBefore("\n")
+                .trim()
+                .lowercase()
+            val regex = """(\d+\.?\d*)""".toRegex()
+            val match = regex.find(rec)
+            if (match != null) {
+                return match.value.toDoubleOrNull()
+            }
+        }
+        return null
+    }
+
     fun addDTRound(result: String) {
         viewModelScope.launch {
-            dtDao.insertRound(DragonTigerRound(result = result))
+            val pred = dtResult.value.predictedNext
+            val source = if (_geminiApiKey.value.isNotBlank() && _aiAdviceText.value.isNotBlank() && _currentGame.value == "DRAGON_TIGER") "AI" else "LOCAL"
+            val finalPred = if (source == "AI") {
+                val parsed = parseAiRecommendation(_aiAdviceText.value)
+                if (parsed != "UNCERTAIN") parsed else pred
+            } else {
+                pred
+            }
+            val win = if (finalPred == "DRAGON" && result == "D") true 
+                      else if (finalPred == "TIGER" && result == "T") true 
+                      else if (finalPred == "UNCERTAIN" || result == "X") null 
+                      else false
+            dtDao.insertRound(DragonTigerRound(
+                result = result,
+                prediction = finalPred,
+                predictionSource = source,
+                isWin = win
+            ))
             if (_geminiApiKey.value.isNotBlank()) {
                 refreshAiStrategy()
             }
@@ -105,6 +155,18 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
     fun clearDTRounds() {
         viewModelScope.launch {
             dtDao.clearAll()
+        }
+    }
+
+    fun deleteDTRound(id: Int) {
+        viewModelScope.launch {
+            dtDao.deleteRound(id)
+        }
+    }
+
+    fun updateDTRoundStatus(id: Int, isWin: Boolean?) {
+        viewModelScope.launch {
+            dtDao.updateRoundStatus(id, isWin)
         }
     }
 
@@ -125,7 +187,24 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun addABRound(result: String) {
         viewModelScope.launch {
-            abDao.insertRound(AndarBaharRound(result = result))
+            val pred = abResult.value.predictedNext
+            val source = if (_geminiApiKey.value.isNotBlank() && _aiAdviceText.value.isNotBlank() && _currentGame.value == "ANDAR_BAHAR") "AI" else "LOCAL"
+            val finalPred = if (source == "AI") {
+                val parsed = parseAiRecommendation(_aiAdviceText.value)
+                if (parsed != "UNCERTAIN") parsed else pred
+            } else {
+                pred
+            }
+            val win = if (finalPred == "ANDAR" && result == "A") true 
+                      else if (finalPred == "BAHAR" && result == "B") true 
+                      else if (finalPred == "UNCERTAIN") null 
+                      else false
+            abDao.insertRound(AndarBaharRound(
+                result = result,
+                prediction = finalPred,
+                predictionSource = source,
+                isWin = win
+            ))
             if (_geminiApiKey.value.isNotBlank()) {
                 refreshAiStrategy()
             }
@@ -135,6 +214,18 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
     fun clearABRounds() {
         viewModelScope.launch {
             abDao.clearAll()
+        }
+    }
+
+    fun deleteABRound(id: Int) {
+        viewModelScope.launch {
+            abDao.deleteRound(id)
+        }
+    }
+
+    fun updateABRoundStatus(id: Int, isWin: Boolean?) {
+        viewModelScope.launch {
+            abDao.updateRoundStatus(id, isWin)
         }
     }
 
@@ -155,7 +246,25 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun addSevenRound(result: String) {
         viewModelScope.launch {
-            sevenDao.insertRound(SevenUpDownRound(result = result))
+            val pred = sevenResult.value.predictedNext
+            val source = if (_geminiApiKey.value.isNotBlank() && _aiAdviceText.value.isNotBlank() && _currentGame.value == "SEVEN_UP_DOWN") "AI" else "LOCAL"
+            val finalPred = if (source == "AI") {
+                val parsed = parseAiRecommendation(_aiAdviceText.value)
+                if (parsed != "UNCERTAIN") parsed else pred
+            } else {
+                pred
+            }
+            val win = if (finalPred == "UP" && result == "U") true 
+                      else if (finalPred == "DOWN" && result == "D") true 
+                      else if (finalPred == "SEVEN" && result == "7") true 
+                      else if (finalPred == "UNCERTAIN") null 
+                      else false
+            sevenDao.insertRound(SevenUpDownRound(
+                result = result,
+                prediction = finalPred,
+                predictionSource = source,
+                isWin = win
+            ))
             if (_geminiApiKey.value.isNotBlank()) {
                 refreshAiStrategy()
             }
@@ -165,6 +274,18 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
     fun clearSevenRounds() {
         viewModelScope.launch {
             sevenDao.clearAll()
+        }
+    }
+
+    fun deleteSevenRound(id: Int) {
+        viewModelScope.launch {
+            sevenDao.deleteRound(id)
+        }
+    }
+
+    fun updateSevenRoundStatus(id: Int, isWin: Boolean?) {
+        viewModelScope.launch {
+            sevenDao.updateRoundStatus(id, isWin)
         }
     }
 
@@ -204,31 +325,53 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
                 return@launch
             }
 
+            val source = if (_geminiApiKey.value.isNotBlank() && _aiAdviceText.value.isNotBlank() && (_currentGame.value == "RANGO" || _currentGame.value == "AVIATOR")) "AI" else "LOCAL"
+            val localTarget = calculateLocalMetrics().localRecommendedTarget
+            val target = if (source == "AI") {
+                parseCrashAiTarget(_aiAdviceText.value) ?: localTarget
+            } else {
+                localTarget
+            }
+
+            // HIT or NOT HIT determination
+            val isWinVal = multiplier >= target
+
             var profit = 0.0
             if (betSize > 0.0) {
-                if (cashOutVal > 0.0) {
-                    // Winning case: plane flew equal to or higher than target
-                    if (multiplier >= cashOutVal) {
-                        profit = betSize * (cashOutVal - 1.0)
-                    } else {
-                        // Lost case: did not reach cash-out target before flying away
-                        profit = -betSize
-                    }
+                if (isWinVal) {
+                    profit = betSize * (target - 1.0)
+                } else {
+                    profit = -betSize
                 }
             }
 
             val round = CrashRound(
                 multiplier = multiplier,
                 betAmount = betSize,
-                cashOutMultiplier = if (multiplier >= cashOutVal) cashOutVal else 0.0,
-                profitLoss = profit
+                cashOutMultiplier = if (isWinVal) target else 0.0,
+                profitLoss = profit,
+                prediction = "${String.format("%.2f", target)}x",
+                predictionSource = source,
+                isWin = isWinVal
             )
 
             repository.insert(round)
-            _uiMessage.value = "Multiplier $multiplier x standard entry was logged successfully."
+            _uiMessage.value = "Multiplier $multiplier x logged successfully (${if (isWinVal) "HIT" else "NOT HIT"} @ target ${String.format("%.2f", target)}x)"
             
             // Recalculate local heuristics & trigger quick AI advice refreshing if keys exist
             refreshAiStrategy()
+        }
+    }
+
+    fun deleteCrashRound(id: Int) {
+        viewModelScope.launch {
+            repository.deleteRound(id)
+        }
+    }
+
+    fun updateCrashRoundStatus(id: Int, isWin: Boolean?) {
+        viewModelScope.launch {
+            repository.updateRoundStatus(id, isWin)
         }
     }
 

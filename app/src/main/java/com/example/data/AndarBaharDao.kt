@@ -19,6 +19,12 @@ interface AndarBaharDao {
     @Query("DELETE FROM andar_bahar_rounds")
     suspend fun clearAll()
 
+    @Query("DELETE FROM andar_bahar_rounds WHERE id = :roundId")
+    suspend fun deleteRound(roundId: Int)
+
+    @Query("UPDATE andar_bahar_rounds SET isWin = :isWin WHERE id = :roundId")
+    suspend fun updateRoundStatus(roundId: Int, isWin: Boolean?)
+
     @Query("DELETE FROM andar_bahar_rounds WHERE id = (SELECT id FROM andar_bahar_rounds ORDER BY timestamp DESC LIMIT 1)")
     suspend fun deleteLastRound()
 }

@@ -9,5 +9,8 @@ data class SevenUpDownRound(
     val result: String,  // "U" (Up/7 Up), "D" (Down/7 Down), or "7" (Seven)
     val betSide: String = "",
     val timestamp: Long = System.currentTimeMillis(),
-    val sessionId: String = ""
+    val sessionId: String = "",
+    val prediction: String = "",
+    val predictionSource: String = "LOCAL",
+    val isWin: Boolean? = null
 )

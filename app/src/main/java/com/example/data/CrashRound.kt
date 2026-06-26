@@ -10,5 +10,8 @@ data class CrashRound(
     val betAmount: Double = 0.0, // Optional bet size placed by user
     val cashOutMultiplier: Double = 0.0, // Multiplier when cashed out, or 0.0 if plane flew away
     val profitLoss: Double = 0.0, // Profit earned (or negative on loss)
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val prediction: String = "",
+    val predictionSource: String = "LOCAL",
+    val isWin: Boolean? = null
 )

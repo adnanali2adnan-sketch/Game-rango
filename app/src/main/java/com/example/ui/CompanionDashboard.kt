@@ -31,10 +31,15 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.BorderStroke
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.CrashRound
 import com.example.data.DragonTigerRound
 import com.example.data.DragonTigerAnalyzer
+import com.example.data.AndarBaharRound
+import com.example.data.AndarBaharAnalyzer
+import com.example.data.SevenUpDownRound
+import com.example.data.SevenUpDownAnalyzer
 import com.example.MainActivity
 import com.example.ui.theme.*
 import com.example.viewmodel.CompanionViewModel
@@ -61,6 +66,11 @@ fun CompanionDashboard(
     val currentGame by viewModel.currentGame.collectAsStateWithLifecycle()
     val dtRounds by viewModel.dtRounds.collectAsStateWithLifecycle()
     val dtResult by viewModel.dtResult.collectAsStateWithLifecycle()
+
+    val abRounds by viewModel.abRounds.collectAsStateWithLifecycle()
+    val abResult by viewModel.abResult.collectAsStateWithLifecycle()
+    val sevenRounds by viewModel.sevenRounds.collectAsStateWithLifecycle()
+    val sevenResult by viewModel.sevenResult.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val mainActivity = context as? MainActivity
@@ -278,7 +288,23 @@ fun CompanionDashboard(
                         dtRounds = dtRounds,
                         dtResult = dtResult,
                         onDTRoundLogged = { viewModel.addDTRound(it) },
-                        onDTClear = { viewModel.clearDTRounds() }
+                        onDTClear = { viewModel.clearDTRounds() },
+                        onDTDelete = { viewModel.deleteDTRound(it) },
+                        onDTStatusUpdate = { id, win -> viewModel.updateDTRoundStatus(id, win) },
+                        onCrashDelete = { viewModel.deleteCrashRound(it) },
+                        onCrashStatusUpdate = { id, win -> viewModel.updateCrashRoundStatus(id, win) },
+                        abRounds = abRounds,
+                        abResult = abResult,
+                        onABRoundLogged = { viewModel.addABRound(it) },
+                        onABClear = { viewModel.clearABRounds() },
+                        onABDelete = { viewModel.deleteABRound(it) },
+                        onABStatusUpdate = { id, win -> viewModel.updateABRoundStatus(id, win) },
+                        sevenRounds = sevenRounds,
+                        sevenResult = sevenResult,
+                        onSevenRoundLogged = { viewModel.addSevenRound(it) },
+                        onSevenClear = { viewModel.clearSevenRounds() },
+                        onSevenDelete = { viewModel.deleteSevenRound(it) },
+                        onSevenStatusUpdate = { id, win -> viewModel.updateSevenRoundStatus(id, win) }
                     )
                     1 -> {
                         val apiKey by viewModel.geminiApiKey.collectAsStateWithLifecycle()
@@ -388,14 +414,50 @@ fun DashboardTab(
     dtRounds: List<DragonTigerRound>,
     dtResult: DragonTigerAnalyzer.DTResult,
     onDTRoundLogged: (String) -> Unit,
-    onDTClear: () -> Unit
+    onDTClear: () -> Unit,
+    onDTDelete: (Int) -> Unit,
+    onDTStatusUpdate: (Int, Boolean?) -> Unit,
+    onCrashDelete: (Int) -> Unit,
+    onCrashStatusUpdate: (Int, Boolean?) -> Unit,
+    abRounds: List<AndarBaharRound>,
+    abResult: AndarBaharAnalyzer.ABResult,
+    onABRoundLogged: (String) -> Unit,
+    onABClear: () -> Unit,
+    onABDelete: (Int) -> Unit,
+    onABStatusUpdate: (Int, Boolean?) -> Unit,
+    sevenRounds: List<SevenUpDownRound>,
+    sevenResult: SevenUpDownAnalyzer.SevenResult,
+    onSevenRoundLogged: (String) -> Unit,
+    onSevenClear: () -> Unit,
+    onSevenDelete: (Int) -> Unit,
+    onSevenStatusUpdate: (Int, Boolean?) -> Unit
 ) {
     if (currentGame == "DRAGON_TIGER") {
         DragonTigerDashboardContent(
             dtRounds = dtRounds,
             dtResult = dtResult,
             onDTRoundLogged = onDTRoundLogged,
-            onDTClear = onDTClear
+            onDTClear = onDTClear,
+            onDTDelete = onDTDelete,
+            onDTStatusUpdate = onDTStatusUpdate
+        )
+    } else if (currentGame == "ANDAR_BAHAR") {
+        AndarBaharDashboardContent(
+            abRounds = abRounds,
+            abResult = abResult,
+            onABRoundLogged = onABRoundLogged,
+            onABClear = onABClear,
+            onABDelete = onABDelete,
+            onABStatusUpdate = onABStatusUpdate
+        )
+    } else if (currentGame == "SEVEN_UP_DOWN") {
+        SevenUpDownDashboardContent(
+            sevenRounds = sevenRounds,
+            sevenResult = sevenResult,
+            onSevenRoundLogged = onSevenRoundLogged,
+            onSevenClear = onSevenClear,
+            onSevenDelete = onSevenDelete,
+            onSevenStatusUpdate = onSevenStatusUpdate
         )
     } else {
         CrashDashboardContent(
@@ -410,7 +472,9 @@ fun DashboardTab(
             cashOutInput = cashOutInput,
             onCashOutChange = onCashOutChange,
             balanceInput = balanceInput,
-            onBalanceChange = onBalanceChange
+            onBalanceChange = onBalanceChange,
+            onCrashDelete = onCrashDelete,
+            onCrashStatusUpdate = onCrashStatusUpdate
         )
     }
 }
@@ -420,7 +484,9 @@ fun DragonTigerDashboardContent(
     dtRounds: List<DragonTigerRound>,
     dtResult: DragonTigerAnalyzer.DTResult,
     onDTRoundLogged: (String) -> Unit,
-    onDTClear: () -> Unit
+    onDTClear: () -> Unit,
+    onDTDelete: (Int) -> Unit,
+    onDTStatusUpdate: (Int, Boolean?) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier
@@ -671,6 +737,98 @@ fun DragonTigerDashboardContent(
             }
         }
 
+        // Stats Card
+        item {
+            val totalRounds = dtRounds.size
+            val wins = dtRounds.count { it.isWin == true }
+            val losses = dtRounds.count { it.isWin == false }
+            val waits = dtRounds.count { it.isWin == null }
+            val winRate = if (totalRounds > 0) (wins * 100.0 / totalRounds) else 0.0
+
+            val localRounds = dtRounds.filter { it.predictionSource == "LOCAL" }
+            val localTotal = localRounds.size
+            val localWins = localRounds.count { it.isWin == true }
+            val localWinRate = if (localTotal > 0) (localWins * 100.0 / localTotal) else 0.0
+
+            val aiRounds = dtRounds.filter { it.predictionSource == "AI" }
+            val aiTotal = aiRounds.size
+            val aiWins = aiRounds.count { it.isWin == true }
+            val aiWinRate = if (aiTotal > 0) (aiWins * 100.0 / aiTotal) else 0.0
+
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(containerColor = RangoHorizon),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "📊 SESSION SCORECARD & WIN RATES",
+                        color = RangoDesertGold,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("TOTAL", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Text("$totalRounds", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        }
+                        Column {
+                            Text("WINS", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Text("$wins", color = RangoLimeGreen, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        }
+                        Column {
+                            Text("LOSSES", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Text("$losses", color = RangoDangerRed, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        }
+                        Column {
+                            Text("WAITS", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Text("$waits", color = RangoDesertGold, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        }
+                        Column {
+                            Text("WIN RATE", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Text("${String.format("%.1f", winRate)}%", color = RangoLimeGreen, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        }
+                    }
+
+                    HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 4.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = RangoCardBg),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("LOCAL PREDICTIONS", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.height(2.dp))
+                                Text("${String.format("%.1f", localWinRate)}%", color = RangoLimeGreen, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text("Rounds: $localTotal", color = RangoTextMuted, fontSize = 8.sp)
+                            }
+                        }
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = RangoCardBg),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("AI PREDICTIONS", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.height(2.dp))
+                                Text("${String.format("%.1f", aiWinRate)}%", color = RangoDesertGold, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text("Rounds: $aiTotal", color = RangoTextMuted, fontSize = 8.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // History Log and Reset Header
         item {
             Row(
@@ -712,37 +870,1096 @@ fun DragonTigerDashboardContent(
                 }
             }
         } else {
-            item {
-                LazyRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+            items(dtRounds) { round ->
+                DTHistoryRowItem(
+                    round = round,
+                    onDelete = onDTDelete,
+                    onStatusUpdate = onDTStatusUpdate
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun DTHistoryRowItem(
+    round: DragonTigerRound,
+    onDelete: (Int) -> Unit,
+    onStatusUpdate: (Int, Boolean?) -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = RangoCardBg),
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    items(dtRounds) { round ->
-                        val bg = when (round.result) {
-                            "D" -> RangoLimeGreen
-                            "T" -> RangoDangerRed
-                            else -> Color(0xFF8E24AA)
-                        }
-                        val label = when (round.result) {
-                            "D" -> "DRAGON"
-                            "T" -> "TIGER"
-                            else -> "TIE"
-                        }
-                        val txtColor = if (round.result == "D") Color.Black else Color.White
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(bg)
-                                .padding(horizontal = 10.dp, vertical = 5.dp)
+                    val bg = when (round.result) {
+                        "D" -> RangoLimeGreen
+                        "T" -> RangoDangerRed
+                        else -> Color(0xFF8E24AA)
+                    }
+                    val label = when (round.result) {
+                        "D" -> "DRAGON"
+                        "T" -> "TIGER"
+                        else -> "TIE"
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .background(bg, RoundedCornerShape(4.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (round.result == "D") "🐉" else if (round.result == "T") "🐯" else "T",
+                            color = Color.White,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 14.sp
+                        )
+                    }
+
+                    Column {
+                        Text(
+                            text = label,
+                            color = RangoTextWhite,
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+
+                        Text(
+                            text = "Pred: ${round.prediction.ifBlank { "None" }} (${round.predictionSource})",
+                            style = MaterialTheme.typography.bodySmall.copy(color = RangoTextMuted)
+                        )
+                    }
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val badgeBg = when (round.isWin) {
+                        true -> RangoLimeGreen.copy(alpha = 0.2f)
+                        false -> RangoDangerRed.copy(alpha = 0.2f)
+                        null -> RangoDesertGold.copy(alpha = 0.2f)
+                    }
+                    val badgeColor = when (round.isWin) {
+                        true -> RangoLimeGreen
+                        false -> RangoDangerRed
+                        null -> RangoDesertGold
+                    }
+                    val badgeText = when (round.isWin) {
+                        true -> "WIN"
+                        false -> "LOSS"
+                        null -> "WAIT"
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(badgeBg)
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = badgeText,
+                            color = badgeColor,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { onDelete(round.id) },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete Round",
+                            tint = RangoDangerRed.copy(alpha = 0.8f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+
+            // Quick Feedback Buttons to manually override / set outcome
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Feedback:",
+                    color = RangoTextMuted,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(end = 8.dp)
+                )
+
+                OutlinedButton(
+                    onClick = { onStatusUpdate(round.id, true) },
+                    border = BorderStroke(1.dp, if (round.isWin == true) RangoLimeGreen else Color.Gray.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(4.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = if (round.isWin == true) RangoLimeGreen.copy(alpha = 0.1f) else Color.Transparent
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier
+                        .height(26.dp)
+                        .padding(end = 6.dp)
+                ) {
+                    Icon(Icons.Default.Check, "Win", tint = RangoLimeGreen, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(2.dp))
+                    Text("Win", color = RangoLimeGreen, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                }
+
+                OutlinedButton(
+                    onClick = { onStatusUpdate(round.id, false) },
+                    border = BorderStroke(1.dp, if (round.isWin == false) RangoDangerRed else Color.Gray.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(4.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = if (round.isWin == false) RangoDangerRed.copy(alpha = 0.1f) else Color.Transparent
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.height(26.dp)
+                ) {
+                    Icon(Icons.Default.Close, "Loss", tint = RangoDangerRed, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(2.dp))
+                    Text("Loss", color = RangoDangerRed, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                }
+
+                OutlinedButton(
+                    onClick = { onStatusUpdate(round.id, null) },
+                    border = BorderStroke(1.dp, if (round.isWin == null) RangoDesertGold else Color.Gray.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(4.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = if (round.isWin == null) RangoDesertGold.copy(alpha = 0.1f) else Color.Transparent
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier
+                        .height(26.dp)
+                        .padding(start = 6.dp)
+                ) {
+                    Icon(Icons.Default.HourglassEmpty, "Wait", tint = RangoDesertGold, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(2.dp))
+                    Text("Wait", color = RangoDesertGold, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AndarBaharDashboardContent(
+    abRounds: List<AndarBaharRound>,
+    abResult: AndarBaharAnalyzer.ABResult,
+    onABRoundLogged: (String) -> Unit,
+    onABClear: () -> Unit,
+    onABDelete: (Int) -> Unit,
+    onABStatusUpdate: (Int, Boolean?) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Activation & Overlay Status Card
+        item {
+            val context = LocalContext.current
+            val mainActivity = context as? MainActivity
+            
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(containerColor = RangoCardBg),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "🚪 ANDAR BAHAR AI COCKPIT HUD",
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            color = RangoLimeGreen,
+                            fontWeight = FontWeight.Bold
+                        )
+                    )
+                    Text(
+                        "Run the background floating widget on top of Andar Bahar card screen. Tap quick entries to track trends instantly.",
+                        style = MaterialTheme.typography.bodySmall.copy(color = RangoTextMuted)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { mainActivity?.startFloatingCockpit("ANDAR_BAHAR", "VERTICAL") },
+                            colors = ButtonDefaults.buttonColors(containerColor = RangoLimeGreen),
+                            modifier = Modifier.weight(1f).height(38.dp),
+                            shape = RoundedCornerShape(8.dp)
                         ) {
-                            Text(
-                                text = label,
-                                color = txtColor,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Icon(Icons.Default.Dashboard, "bubble", tint = Color.Black, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("ACTIVATE HUD", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
+                }
+            }
+        }
+
+        // Analytics Banner & Cards
+        item {
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(containerColor = RangoHorizon),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        "🚪 ANDAR BAHAR TREND ANALYSIS",
+                        color = RangoDesertGold,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                    )
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1.3f)) {
+                            Text("SUGGESTED NEXT", color = RangoTextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = abResult.suggestedBet,
+                                color = if (abResult.suggestedBet.contains("ANDAR")) RangoLimeGreen else if (abResult.suggestedBet.contains("BAHAR")) RangoDangerRed else Color.White,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("STREAK STATUS", color = RangoTextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(abResult.currentStreak, color = RangoDesertGold, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    
+                    HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 4.dp))
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Andar: ${abResult.andarPct}%", color = RangoLimeGreen, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text("Bahar: ${abResult.baharPct}%", color = RangoDangerRed, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text("Hot: ${abResult.hotSide}", color = RangoDesertGold, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color.Black.copy(alpha = 0.4f))
+                            .padding(8.dp)
+                    ) {
+                        Text(
+                            text = abResult.advice,
+                            color = RangoTextWhite,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
+            }
+        }
+
+
+
+        // Stats Card
+        item {
+            val totalRounds = abRounds.size
+            val wins = abRounds.count { it.isWin == true }
+            val losses = abRounds.count { it.isWin == false }
+            val waits = abRounds.count { it.isWin == null }
+            val winRate = if (totalRounds > 0) (wins * 100.0 / totalRounds) else 0.0
+
+            val localRounds = abRounds.filter { it.predictionSource == "LOCAL" }
+            val localTotal = localRounds.size
+            val localWins = localRounds.count { it.isWin == true }
+            val localWinRate = if (localTotal > 0) (localWins * 100.0 / localTotal) else 0.0
+
+            val aiRounds = abRounds.filter { it.predictionSource == "AI" }
+            val aiTotal = aiRounds.size
+            val aiWins = aiRounds.count { it.isWin == true }
+            val aiWinRate = if (aiTotal > 0) (aiWins * 100.0 / aiTotal) else 0.0
+
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(containerColor = RangoHorizon),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "📊 SESSION SCORECARD & WIN RATES",
+                        color = RangoDesertGold,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("TOTAL", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Text("$totalRounds", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        }
+                        Column {
+                            Text("WINS", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Text("$wins", color = RangoLimeGreen, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        }
+                        Column {
+                            Text("LOSSES", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Text("$losses", color = RangoDangerRed, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        }
+                        Column {
+                            Text("WAITS", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Text("$waits", color = RangoDesertGold, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        }
+                        Column {
+                            Text("WIN RATE", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Text("${String.format("%.1f", winRate)}%", color = RangoLimeGreen, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        }
+                    }
+
+                    HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 4.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = RangoCardBg),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("LOCAL PREDICTIONS", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.height(2.dp))
+                                Text("${String.format("%.1f", localWinRate)}%", color = RangoLimeGreen, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text("Rounds: $localTotal", color = RangoTextMuted, fontSize = 8.sp)
+                            }
+                        }
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = RangoCardBg),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("AI PREDICTIONS", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.height(2.dp))
+                                Text("${String.format("%.1f", aiWinRate)}%", color = RangoDesertGold, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text("Rounds: $aiTotal", color = RangoTextMuted, fontSize = 8.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // History list Header
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "HISTORICAL ROUNDS LOGS (${abRounds.size})",
+                    style = MaterialTheme.typography.titleSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = RangoTextMuted,
+                        letterSpacing = 0.5.sp
+                    )
+                )
+                IconButton(
+                    onClick = onABClear,
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(Icons.Default.DeleteSweep, "Clear database", tint = RangoDangerRed)
+                }
+            }
+        }
+
+        if (abRounds.isEmpty()) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "No Andar Bahar rounds logged yet. Tap outcomes above to trace trends.",
+                        color = RangoTextMuted,
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+        } else {
+            items(abRounds) { round ->
+                ABHistoryRowItem(
+                    round = round,
+                    onDelete = onABDelete,
+                    onStatusUpdate = onABStatusUpdate
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun ABHistoryRowItem(
+    round: AndarBaharRound,
+    onDelete: (Int) -> Unit,
+    onStatusUpdate: (Int, Boolean?) -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = RangoCardBg),
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .background(
+                                if (round.result == "A") RangoLimeGreen else RangoDangerRed,
+                                RoundedCornerShape(4.dp)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = round.result,
+                            color = if (round.result == "A") Color.Black else Color.White,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 14.sp
+                        )
+                    }
+
+                    Column {
+                        Text(
+                            text = if (round.result == "A") "Andar" else "Bahar",
+                            color = RangoTextWhite,
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+
+                        Text(
+                            text = "Pred: ${round.prediction.ifBlank { "None" }} (${round.predictionSource})",
+                            style = MaterialTheme.typography.bodySmall.copy(color = RangoTextMuted)
+                        )
+                    }
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val badgeBg = when (round.isWin) {
+                        true -> RangoLimeGreen.copy(alpha = 0.2f)
+                        false -> RangoDangerRed.copy(alpha = 0.2f)
+                        null -> RangoDesertGold.copy(alpha = 0.2f)
+                    }
+                    val badgeColor = when (round.isWin) {
+                        true -> RangoLimeGreen
+                        false -> RangoDangerRed
+                        null -> RangoDesertGold
+                    }
+                    val badgeText = when (round.isWin) {
+                        true -> "WIN"
+                        false -> "LOSS"
+                        null -> "WAIT"
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(badgeBg)
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = badgeText,
+                            color = badgeColor,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { onDelete(round.id) },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete Round",
+                            tint = RangoDangerRed.copy(alpha = 0.8f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+
+            // Quick Feedback Buttons to manually override / set outcome
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Feedback:",
+                    color = RangoTextMuted,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(end = 8.dp)
+                )
+
+                OutlinedButton(
+                    onClick = { onStatusUpdate(round.id, true) },
+                    border = BorderStroke(1.dp, if (round.isWin == true) RangoLimeGreen else Color.Gray.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(4.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = if (round.isWin == true) RangoLimeGreen.copy(alpha = 0.1f) else Color.Transparent
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier
+                        .height(26.dp)
+                        .padding(end = 6.dp)
+                ) {
+                    Icon(Icons.Default.Check, "Win", tint = RangoLimeGreen, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(2.dp))
+                    Text("Win", color = RangoLimeGreen, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                }
+
+                OutlinedButton(
+                    onClick = { onStatusUpdate(round.id, false) },
+                    border = BorderStroke(1.dp, if (round.isWin == false) RangoDangerRed else Color.Gray.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(4.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = if (round.isWin == false) RangoDangerRed.copy(alpha = 0.1f) else Color.Transparent
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.height(26.dp)
+                ) {
+                    Icon(Icons.Default.Close, "Loss", tint = RangoDangerRed, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(2.dp))
+                    Text("Loss", color = RangoDangerRed, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                }
+
+                OutlinedButton(
+                    onClick = { onStatusUpdate(round.id, null) },
+                    border = BorderStroke(1.dp, if (round.isWin == null) RangoDesertGold else Color.Gray.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(4.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = if (round.isWin == null) RangoDesertGold.copy(alpha = 0.1f) else Color.Transparent
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier
+                        .height(26.dp)
+                        .padding(start = 6.dp)
+                ) {
+                    Icon(Icons.Default.HourglassEmpty, "Wait", tint = RangoDesertGold, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(2.dp))
+                    Text("Wait", color = RangoDesertGold, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SevenUpDownDashboardContent(
+    sevenRounds: List<SevenUpDownRound>,
+    sevenResult: SevenUpDownAnalyzer.SevenResult,
+    onSevenRoundLogged: (String) -> Unit,
+    onSevenClear: () -> Unit,
+    onSevenDelete: (Int) -> Unit,
+    onSevenStatusUpdate: (Int, Boolean?) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Activation & Overlay Status Card
+        item {
+            val context = LocalContext.current
+            val mainActivity = context as? MainActivity
+            
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(containerColor = RangoCardBg),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "🎲 7 UP DOWN AI COCKPIT HUD",
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            color = RangoDesertGold,
+                            fontWeight = FontWeight.Bold
+                        )
+                    )
+                    Text(
+                        "Run the background floating widget on top of 7 Up Down card screen. Tap quick entries to track trends instantly.",
+                        style = MaterialTheme.typography.bodySmall.copy(color = RangoTextMuted)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { mainActivity?.startFloatingCockpit("SEVEN_UP_DOWN", "VERTICAL") },
+                            colors = ButtonDefaults.buttonColors(containerColor = RangoLimeGreen),
+                            modifier = Modifier.weight(1f).height(38.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.Dashboard, "bubble", tint = Color.Black, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("ACTIVATE HUD", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Analytics Banner & Cards
+        item {
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(containerColor = RangoHorizon),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        "🎲 7 UP DOWN TREND ANALYSIS",
+                        color = RangoDesertGold,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                    )
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1.3f)) {
+                            Text("SUGGESTED NEXT", color = RangoTextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = sevenResult.suggestedBet,
+                                color = if (sevenResult.suggestedBet.contains("UP")) RangoLimeGreen else if (sevenResult.suggestedBet.contains("DOWN")) RangoDangerRed else RangoDesertGold,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("STREAK STATUS", color = RangoTextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(sevenResult.currentStreak, color = RangoDesertGold, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    
+                    HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 4.dp))
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("7 Up: ${sevenResult.upPct}%", color = RangoLimeGreen, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text("7 Down: ${sevenResult.downPct}%", color = RangoDangerRed, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text("Lucky 7: ${sevenResult.sevenPct}%", color = RangoDesertGold, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color.Black.copy(alpha = 0.4f))
+                            .padding(8.dp)
+                    ) {
+                        Text(
+                            text = sevenResult.advice,
+                            color = RangoTextWhite,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
+            }
+        }
+
+
+
+        // Stats Card
+        item {
+            val totalRounds = sevenRounds.size
+            val wins = sevenRounds.count { it.isWin == true }
+            val losses = sevenRounds.count { it.isWin == false }
+            val waits = sevenRounds.count { it.isWin == null }
+            val winRate = if (totalRounds > 0) (wins * 100.0 / totalRounds) else 0.0
+
+            val localRounds = sevenRounds.filter { it.predictionSource == "LOCAL" }
+            val localTotal = localRounds.size
+            val localWins = localRounds.count { it.isWin == true }
+            val localWinRate = if (localTotal > 0) (localWins * 100.0 / localTotal) else 0.0
+
+            val aiRounds = sevenRounds.filter { it.predictionSource == "AI" }
+            val aiTotal = aiRounds.size
+            val aiWins = aiRounds.count { it.isWin == true }
+            val aiWinRate = if (aiTotal > 0) (aiWins * 100.0 / aiTotal) else 0.0
+
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(containerColor = RangoHorizon),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "📊 SESSION SCORECARD & WIN RATES",
+                        color = RangoDesertGold,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("TOTAL", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Text("$totalRounds", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        }
+                        Column {
+                            Text("WINS", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Text("$wins", color = RangoLimeGreen, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        }
+                        Column {
+                            Text("LOSSES", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Text("$losses", color = RangoDangerRed, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        }
+                        Column {
+                            Text("WAITS", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Text("$waits", color = RangoDesertGold, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        }
+                        Column {
+                            Text("WIN RATE", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Text("${String.format("%.1f", winRate)}%", color = RangoLimeGreen, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        }
+                    }
+
+                    HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 4.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = RangoCardBg),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("LOCAL PREDICTIONS", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.height(2.dp))
+                                Text("${String.format("%.1f", localWinRate)}%", color = RangoLimeGreen, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text("Rounds: $localTotal", color = RangoTextMuted, fontSize = 8.sp)
+                            }
+                        }
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = RangoCardBg),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("AI PREDICTIONS", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.height(2.dp))
+                                Text("${String.format("%.1f", aiWinRate)}%", color = RangoDesertGold, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text("Rounds: $aiTotal", color = RangoTextMuted, fontSize = 8.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // History list Header
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "HISTORICAL ROUNDS LOGS (${sevenRounds.size})",
+                    style = MaterialTheme.typography.titleSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = RangoTextMuted,
+                        letterSpacing = 0.5.sp
+                    )
+                )
+                IconButton(
+                    onClick = onSevenClear,
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(Icons.Default.DeleteSweep, "Clear database", tint = RangoDangerRed)
+                }
+            }
+        }
+
+        if (sevenRounds.isEmpty()) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "No 7 Up Down rounds logged yet. Tap outcomes above to trace trends.",
+                        color = RangoTextMuted,
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+        } else {
+            items(sevenRounds) { round ->
+                SevenHistoryRowItem(
+                    round = round,
+                    onDelete = onSevenDelete,
+                    onStatusUpdate = onSevenStatusUpdate
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun SevenHistoryRowItem(
+    round: SevenUpDownRound,
+    onDelete: (Int) -> Unit,
+    onStatusUpdate: (Int, Boolean?) -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = RangoCardBg),
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val bg = when (round.result) {
+                        "U" -> RangoLimeGreen
+                        "D" -> RangoDangerRed
+                        else -> RangoDesertGold
+                    }
+                    val label = when (round.result) {
+                        "U" -> "UP"
+                        "D" -> "DOWN"
+                        else -> "7"
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .background(bg, RoundedCornerShape(4.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = label,
+                            color = if (round.result == "U" || round.result == "7") Color.Black else Color.White,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 11.sp
+                        )
+                    }
+
+                    Column {
+                        Text(
+                            text = when (round.result) {
+                                "U" -> "7 Up"
+                                "D" -> "7 Down"
+                                else -> "Lucky 7"
+                            },
+                            color = RangoTextWhite,
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+
+                        Text(
+                            text = "Pred: ${round.prediction.ifBlank { "None" }} (${round.predictionSource})",
+                            style = MaterialTheme.typography.bodySmall.copy(color = RangoTextMuted)
+                        )
+                    }
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val badgeBg = when (round.isWin) {
+                        true -> RangoLimeGreen.copy(alpha = 0.2f)
+                        false -> RangoDangerRed.copy(alpha = 0.2f)
+                        null -> RangoDesertGold.copy(alpha = 0.2f)
+                    }
+                    val badgeColor = when (round.isWin) {
+                        true -> RangoLimeGreen
+                        false -> RangoDangerRed
+                        null -> RangoDesertGold
+                    }
+                    val badgeText = when (round.isWin) {
+                        true -> "WIN"
+                        false -> "LOSS"
+                        null -> "WAIT"
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(badgeBg)
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = badgeText,
+                            color = badgeColor,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { onDelete(round.id) },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete Round",
+                            tint = RangoDangerRed.copy(alpha = 0.8f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+
+            // Quick Feedback Buttons to manually override / set outcome
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Feedback:",
+                    color = RangoTextMuted,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(end = 8.dp)
+                )
+
+                OutlinedButton(
+                    onClick = { onStatusUpdate(round.id, true) },
+                    border = BorderStroke(1.dp, if (round.isWin == true) RangoLimeGreen else Color.Gray.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(4.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = if (round.isWin == true) RangoLimeGreen.copy(alpha = 0.1f) else Color.Transparent
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier
+                        .height(26.dp)
+                        .padding(end = 6.dp)
+                ) {
+                    Icon(Icons.Default.Check, "Win", tint = RangoLimeGreen, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(2.dp))
+                    Text("Win", color = RangoLimeGreen, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                }
+
+                OutlinedButton(
+                    onClick = { onStatusUpdate(round.id, false) },
+                    border = BorderStroke(1.dp, if (round.isWin == false) RangoDangerRed else Color.Gray.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(4.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = if (round.isWin == false) RangoDangerRed.copy(alpha = 0.1f) else Color.Transparent
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.height(26.dp)
+                ) {
+                    Icon(Icons.Default.Close, "Loss", tint = RangoDangerRed, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(2.dp))
+                    Text("Loss", color = RangoDangerRed, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                }
+
+                OutlinedButton(
+                    onClick = { onStatusUpdate(round.id, null) },
+                    border = BorderStroke(1.dp, if (round.isWin == null) RangoDesertGold else Color.Gray.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(4.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = if (round.isWin == null) RangoDesertGold.copy(alpha = 0.1f) else Color.Transparent
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier
+                        .height(26.dp)
+                        .padding(start = 6.dp)
+                ) {
+                    Icon(Icons.Default.HourglassEmpty, "Wait", tint = RangoDesertGold, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(2.dp))
+                    Text("Wait", color = RangoDesertGold, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -762,7 +1979,9 @@ fun CrashDashboardContent(
     cashOutInput: String,
     onCashOutChange: (String) -> Unit,
     balanceInput: String,
-    onBalanceChange: (String) -> Unit
+    onBalanceChange: (String) -> Unit,
+    onCrashDelete: (Int) -> Unit,
+    onCrashStatusUpdate: (Int, Boolean?) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier
@@ -1141,6 +2360,98 @@ fun CrashDashboardContent(
             }
         }
 
+        // Stats Card for Crash
+        item {
+            val totalRounds = historyList.size
+            val hits = historyList.count { it.isWin == true }
+            val misses = historyList.count { it.isWin == false }
+            val waits = historyList.count { it.isWin == null }
+            val hitRate = if (totalRounds > 0) (hits * 100.0 / totalRounds) else 0.0
+
+            val localRounds = historyList.filter { it.predictionSource == "LOCAL" }
+            val localTotal = localRounds.size
+            val localWins = localRounds.count { it.isWin == true }
+            val localWinRate = if (localTotal > 0) (localWins * 100.0 / localTotal) else 0.0
+
+            val aiRounds = historyList.filter { it.predictionSource == "AI" }
+            val aiTotal = aiRounds.size
+            val aiWins = aiRounds.count { it.isWin == true }
+            val aiWinRate = if (aiTotal > 0) (aiWins * 100.0 / aiTotal) else 0.0
+
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(containerColor = RangoHorizon),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "📊 SESSION SCORECARD & HIT RATES",
+                        color = RangoDesertGold,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("TOTAL", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Text("$totalRounds", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        }
+                        Column {
+                            Text("HITS", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Text("$hits", color = RangoLimeGreen, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        }
+                        Column {
+                            Text("NOT HITS", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Text("$misses", color = RangoDangerRed, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        }
+                        Column {
+                            Text("WAITS", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Text("$waits", color = RangoDesertGold, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        }
+                        Column {
+                            Text("HIT RATE", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Text("${String.format("%.1f", hitRate)}%", color = RangoLimeGreen, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        }
+                    }
+
+                    HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 4.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = RangoCardBg),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("LOCAL PREDICTIONS", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.height(2.dp))
+                                Text("${String.format("%.1f", localWinRate)}%", color = RangoLimeGreen, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text("Rounds: $localTotal", color = RangoTextMuted, fontSize = 8.sp)
+                            }
+                        }
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = RangoCardBg),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("AI PREDICTIONS", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.height(2.dp))
+                                Text("${String.format("%.1f", aiWinRate)}%", color = RangoDesertGold, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text("Rounds: $aiTotal", color = RangoTextMuted, fontSize = 8.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // History Log List header/controls
         item {
             Text(
@@ -1172,7 +2483,11 @@ fun CrashDashboardContent(
             }
         } else {
             items(historyList) { round ->
-                HistoryRowItem(round = round)
+                HistoryRowItem(
+                    round = round,
+                    onDelete = onCrashDelete,
+                    onStatusUpdate = onCrashStatusUpdate
+                )
             }
         }
     }
@@ -1296,85 +2611,173 @@ fun QuickStatsRow(metrics: LocalMetrics) {
 }
 
 @Composable
-fun HistoryRowItem(round: CrashRound) {
+fun HistoryRowItem(
+    round: CrashRound,
+    onDelete: (Int) -> Unit,
+    onStatusUpdate: (Int, Boolean?) -> Unit
+) {
     Card(
         colors = CardDefaults.cardColors(containerColor = RangoCardBg),
         shape = RoundedCornerShape(8.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 2.dp)
+            .padding(vertical = 4.dp)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Color Code bubble indicator
-                Box(
-                    modifier = Modifier
-                        .size(12.dp)
-                        .background(
-                            when {
-                                round.multiplier >= 4.0 -> Color(0xFF8C34FF)
-                                round.multiplier >= 2.0 -> RangoLimeGreen
-                                round.multiplier < 1.3 -> RangoDangerRed
-                                else -> RangoSandWarm
-                            },
-                            CircleShape
-                        )
-                )
-
-                Column {
-                    Text(
-                        "${round.multiplier}x Flight",
-                        color = RangoTextWhite,
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.bodyMedium
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(12.dp)
+                            .background(
+                                when {
+                                    round.multiplier >= 4.0 -> Color(0xFF8C34FF)
+                                    round.multiplier >= 2.0 -> RangoLimeGreen
+                                    round.multiplier < 1.3 -> RangoDangerRed
+                                    else -> RangoSandWarm
+                                },
+                                CircleShape
+                            )
                     )
 
-                    if (round.betAmount > 0.0) {
+                    Column {
                         Text(
-                            "Bet: PKR ${round.betAmount} | Target Cap: ${round.cashOutMultiplier}x",
+                            "${round.multiplier}x Flight",
+                            color = RangoTextWhite,
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+
+                        Text(
+                            text = "Target: ${if (round.cashOutMultiplier > 0.0) "${round.cashOutMultiplier}x" else "None"} | Pred: ${round.prediction.ifBlank { "None" }} (${round.predictionSource})",
                             style = MaterialTheme.typography.bodySmall.copy(color = RangoTextMuted)
                         )
-                    } else {
+                    }
+                }
+
+                // Status Badge & Delete Row
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val badgeBg = when (round.isWin) {
+                        true -> RangoLimeGreen.copy(alpha = 0.2f)
+                        false -> RangoDangerRed.copy(alpha = 0.2f)
+                        null -> RangoDesertGold.copy(alpha = 0.2f)
+                    }
+                    val badgeColor = when (round.isWin) {
+                        true -> RangoLimeGreen
+                        false -> RangoDangerRed
+                        null -> RangoDesertGold
+                    }
+                    val badgeText = when (round.isWin) {
+                        true -> "HIT"
+                        false -> "NOT HIT"
+                        null -> "WAIT"
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(badgeBg)
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
                         Text(
-                            "Logged flight metric tracker",
-                            style = MaterialTheme.typography.bodySmall.copy(color = RangoTextMuted)
+                            text = badgeText,
+                            color = badgeColor,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { onDelete(round.id) },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete Round",
+                            tint = RangoDangerRed.copy(alpha = 0.8f),
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                 }
             }
 
-            // Profit indicator
-            if (round.betAmount > 0.0) {
-                val isProfit = round.profitLoss >= 0.0
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = (if (isProfit) "+" else "") + String.format("%.2f", round.profitLoss),
-                        color = if (isProfit) RangoLimeGreen else RangoDangerRed,
-                        fontWeight = FontWeight.Black,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Text(
-                        text = if (isProfit) "Success" else "Crashout",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (isProfit) RangoLimeGreen else RangoTextMuted
-                    )
-                }
-            } else {
+            // Quick Feedback Buttons to manually override / set outcome
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
-                    "Tracker Only",
+                    text = "Feedback:",
                     color = RangoTextMuted,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Medium
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(end = 8.dp)
                 )
+
+                OutlinedButton(
+                    onClick = { onStatusUpdate(round.id, true) },
+                    border = BorderStroke(1.dp, if (round.isWin == true) RangoLimeGreen else Color.Gray.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(4.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = if (round.isWin == true) RangoLimeGreen.copy(alpha = 0.1f) else Color.Transparent
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier
+                        .height(26.dp)
+                        .padding(end = 6.dp)
+                ) {
+                    Icon(Icons.Default.Check, "Hit", tint = RangoLimeGreen, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(2.dp))
+                    Text("Hit", color = RangoLimeGreen, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                }
+
+                OutlinedButton(
+                    onClick = { onStatusUpdate(round.id, false) },
+                    border = BorderStroke(1.dp, if (round.isWin == false) RangoDangerRed else Color.Gray.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(4.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = if (round.isWin == false) RangoDangerRed.copy(alpha = 0.1f) else Color.Transparent
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.height(26.dp)
+                ) {
+                    Icon(Icons.Default.Close, "Not Hit", tint = RangoDangerRed, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(2.dp))
+                    Text("Not Hit", color = RangoDangerRed, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                }
+
+                OutlinedButton(
+                    onClick = { onStatusUpdate(round.id, null) },
+                    border = BorderStroke(1.dp, if (round.isWin == null) RangoDesertGold else Color.Gray.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(4.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = if (round.isWin == null) RangoDesertGold.copy(alpha = 0.1f) else Color.Transparent
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier
+                        .height(26.dp)
+                        .padding(start = 6.dp)
+                ) {
+                    Icon(Icons.Default.HourglassEmpty, "Wait", tint = RangoDesertGold, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(2.dp))
+                    Text("Wait", color = RangoDesertGold, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                }
             }
         }
     }

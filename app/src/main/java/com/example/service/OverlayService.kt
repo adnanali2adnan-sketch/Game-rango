@@ -589,10 +589,63 @@ class OverlayService : Service() {
         }
     }
 
+    private fun parseAiRecommendation(adviceText: String): String {
+        if (adviceText.contains("RECOMMENDATION:", ignoreCase = true)) {
+            val rec = adviceText.substringAfter("RECOMMENDATION:")
+                .substringBefore("\n")
+                .trim()
+                .uppercase()
+            val clean = rec.replace("[", "").replace("]", "").trim()
+            if (clean.contains("DRAGON") || clean == "D") return "DRAGON"
+            if (clean.contains("TIGER") || clean == "T") return "TIGER"
+            if (clean.contains("ANDAR") || clean == "A") return "ANDAR"
+            if (clean.contains("BAHAR") || clean == "B") return "BAHAR"
+            if (clean.contains("UP") || clean == "U") return "UP"
+            if (clean.contains("DOWN") || clean == "D") return "DOWN"
+            if (clean.contains("SEVEN") || clean == "7") return "SEVEN"
+        }
+        return "UNCERTAIN"
+    }
+
+    private fun parseCrashAiTarget(adviceText: String): Double? {
+        if (adviceText.contains("RECOMMENDATION:", ignoreCase = true)) {
+            val rec = adviceText.substringAfter("RECOMMENDATION:")
+                .substringBefore("\n")
+                .trim()
+                .lowercase()
+            val regex = """(\d+\.?\d*)""".toRegex()
+            val match = regex.find(rec)
+            if (match != null) {
+                return match.value.toDoubleOrNull()
+            }
+        }
+        return null
+    }
+
     private fun addDragonTigerRoundResult(result: String) {
         serviceScope.launch {
-            dtDao.insertRound(com.example.data.DragonTigerRound(result = result))
-            captureLogs.value = "Result logged: $result"
+            val localResult = com.example.data.DragonTigerAnalyzer.analyze(recentDtRoundsList.value)
+            val pred = localResult.predictedNext
+            val hasGemini = geminiApiKey.value.isNotBlank() && geminiAiAdvice.value.isNotBlank()
+            val source = if (hasGemini) "AI" else "LOCAL"
+            val finalPred = if (source == "AI") {
+                val parsed = parseAiRecommendation(geminiAiAdvice.value)
+                if (parsed != "UNCERTAIN") parsed else pred
+            } else {
+                pred
+            }
+            val win = if (finalPred == "DRAGON" && result == "D") true 
+                      else if (finalPred == "TIGER" && result == "T") true 
+                      else if (finalPred == "UNCERTAIN" || result == "X") null 
+                      else false
+
+            dtDao.insertRound(com.example.data.DragonTigerRound(
+                result = result,
+                prediction = finalPred,
+                predictionSource = source,
+                isWin = win
+            ))
+            captureLogs.value = "Result logged: $result (${if (win == true) "WIN" else if (win == false) "LOSS" else "WAIT"})"
             triggerRealtimeGeminiPipeline(force = true)
         }
     }
@@ -615,8 +668,28 @@ class OverlayService : Service() {
 
     private fun addAndarBaharRoundResult(result: String) {
         serviceScope.launch {
-            abDao.insertRound(com.example.data.AndarBaharRound(result = result))
-            captureLogs.value = "Result logged: $result"
+            val localResult = com.example.data.AndarBaharAnalyzer.analyze(recentAbRoundsList.value)
+            val pred = localResult.predictedNext
+            val hasGemini = geminiApiKey.value.isNotBlank() && geminiAiAdvice.value.isNotBlank()
+            val source = if (hasGemini) "AI" else "LOCAL"
+            val finalPred = if (source == "AI") {
+                val parsed = parseAiRecommendation(geminiAiAdvice.value)
+                if (parsed != "UNCERTAIN") parsed else pred
+            } else {
+                pred
+            }
+            val win = if (finalPred == "ANDAR" && result == "A") true 
+                      else if (finalPred == "BAHAR" && result == "B") true 
+                      else if (finalPred == "UNCERTAIN") null 
+                      else false
+
+            abDao.insertRound(com.example.data.AndarBaharRound(
+                result = result,
+                prediction = finalPred,
+                predictionSource = source,
+                isWin = win
+            ))
+            captureLogs.value = "Result logged: $result (${if (win == true) "WIN" else if (win == false) "LOSS" else "WAIT"})"
             triggerRealtimeGeminiPipeline(force = true)
         }
     }
@@ -639,8 +712,29 @@ class OverlayService : Service() {
 
     private fun addSevenUpDownRoundResult(result: String) {
         serviceScope.launch {
-            sevenDao.insertRound(com.example.data.SevenUpDownRound(result = result))
-            captureLogs.value = "Result logged: $result"
+            val localResult = com.example.data.SevenUpDownAnalyzer.analyze(recentSevenRoundsList.value)
+            val pred = localResult.predictedNext
+            val hasGemini = geminiApiKey.value.isNotBlank() && geminiAiAdvice.value.isNotBlank()
+            val source = if (hasGemini) "AI" else "LOCAL"
+            val finalPred = if (source == "AI") {
+                val parsed = parseAiRecommendation(geminiAiAdvice.value)
+                if (parsed != "UNCERTAIN") parsed else pred
+            } else {
+                pred
+            }
+            val win = if (finalPred == "UP" && result == "U") true 
+                      else if (finalPred == "DOWN" && result == "D") true 
+                      else if (finalPred == "SEVEN" && result == "7") true 
+                      else if (finalPred == "UNCERTAIN") null 
+                      else false
+
+            sevenDao.insertRound(com.example.data.SevenUpDownRound(
+                result = result,
+                prediction = finalPred,
+                predictionSource = source,
+                isWin = win
+            ))
+            captureLogs.value = "Result logged: $result (${if (win == true) "WIN" else if (win == false) "LOSS" else "WAIT"})"
             triggerRealtimeGeminiPipeline(force = true)
         }
     }
@@ -2898,10 +2992,22 @@ class OverlayService : Service() {
 
     private fun addCapturedMultiplierToDatabase(multiplier: Double, betSize: Double, cashOutVal: Double) {
         serviceScope.launch(Dispatchers.IO) {
+            val hasGemini = geminiApiKey.value.isNotBlank() && geminiAiAdvice.value.isNotBlank()
+            val source = if (hasGemini) "AI" else "LOCAL"
+            
+            val localTarget = calculateLiveMetrics(recentMultipliersList.value).cashout
+            val target = if (source == "AI") {
+                parseCrashAiTarget(geminiAiAdvice.value) ?: localTarget
+            } else {
+                localTarget
+            }
+
+            val isWinVal = multiplier >= target
+
             var profit = 0.0
             if (betSize > 0.0) {
-                if (multiplier >= cashOutVal) {
-                    profit = betSize * (cashOutVal - 1.0)
+                if (isWinVal) {
+                    profit = betSize * (target - 1.0)
                 } else {
                     profit = -betSize
                 }
@@ -2910,8 +3016,11 @@ class OverlayService : Service() {
             val round = CrashRound(
                 multiplier = multiplier,
                 betAmount = betSize,
-                cashOutMultiplier = if (multiplier >= cashOutVal) cashOutVal else 0.0,
-                profitLoss = profit
+                cashOutMultiplier = if (isWinVal) target else 0.0,
+                profitLoss = profit,
+                prediction = "${String.format("%.2f", target)}x",
+                predictionSource = source,
+                isWin = isWinVal
             )
             repository.insert(round)
         }

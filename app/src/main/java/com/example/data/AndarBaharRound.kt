@@ -9,5 +9,8 @@ data class AndarBaharRound(
     val result: String,  // "A" (Andar) or "B" (Bahar)
     val betSide: String = "",
     val timestamp: Long = System.currentTimeMillis(),
-    val sessionId: String = ""
+    val sessionId: String = "",
+    val prediction: String = "",
+    val predictionSource: String = "LOCAL",
+    val isWin: Boolean? = null
 )
