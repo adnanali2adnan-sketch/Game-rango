@@ -62,6 +62,7 @@ interface GeminiApiService {
 
 object GeminiClient {
     private const val BASE_URL = "https://generativelanguage.googleapis.com/"
+    const val SELECTED_MODEL = "models/gemini-2.5-flash"
 
     private val _latestReport = MutableStateFlow(GeminiDebugReport())
     val latestReport: StateFlow<GeminiDebugReport> = _latestReport.asStateFlow()
@@ -70,7 +71,7 @@ object GeminiClient {
     
     // Throttling & Deduplication states
     private var lastRequestTime = 0L
-    private const val THROTTLE_MS = 5_000L // Highly responsive for testing, yet prevents multi-click loops
+    private const val THROTTLE_MS = 1_000L // Reduced to 1 second for ultra-responsive testing
     private var lastPromptText: String? = null
 
     private val moshi: Moshi = Moshi.Builder()
@@ -135,8 +136,8 @@ object GeminiClient {
         val now = System.currentTimeMillis()
         val elapsed = now - lastRequestTime
 
-        // Deduplication: if the exact prompt is sent again in less than 5 seconds, drop it
-        if (promptText == lastPromptText && elapsed < 5000L) {
+        // Deduplication: if the exact prompt is sent again in less than 1 second, drop it
+        if (promptText == lastPromptText && elapsed < 1000L) {
             return "⚠️ Duplicate request ignored."
         }
 
@@ -150,7 +151,7 @@ object GeminiClient {
                 httpCode = "N/A",
                 responseBody = "N/A",
                 errorMessage = "Throttled: Please wait $waitSecs seconds.",
-                modelNameUsed = "gemini-2.5-flash",
+                modelNameUsed = SELECTED_MODEL,
                 totalRequestsCount = totalRequestsCount.get(),
                 finalFailureReason = "Local App Rate Limit",
                 endpointUsed = "N/A",
@@ -167,10 +168,10 @@ object GeminiClient {
         lastRequestTime = now
         lastPromptText = promptText
 
-        val modelsToTry = listOf("gemini-2.5-flash", "gemini-3.5-flash")
+        val modelsToTry = listOf(SELECTED_MODEL)
         var lastErrorAdvice = ""
         
-        val isOauthToken = apiKey.startsWith("ya29.") || apiKey.startsWith("AQ.") || apiKey.startsWith("Bearer ") || apiKey.length > 50
+        val isOauthToken = apiKey.startsWith("ya29.") || apiKey.startsWith("Bearer ")
         val xGoogApiKeyHeader = if (isOauthToken) null else apiKey
         val apiKeyQueryParam = if (isOauthToken) null else apiKey
         val authHeader = if (isOauthToken) {
@@ -376,10 +377,10 @@ object GeminiClient {
             return report
         }
 
-        val modelsToTry = listOf("gemini-2.5-flash", "gemini-3.5-flash")
+        val modelsToTry = listOf(SELECTED_MODEL)
         var finalReport = GeminiDebugReport()
 
-        val isOauthToken = trimmedKey.startsWith("ya29.") || trimmedKey.startsWith("AQ.") || trimmedKey.startsWith("Bearer ") || trimmedKey.length > 50
+        val isOauthToken = trimmedKey.startsWith("ya29.") || trimmedKey.startsWith("Bearer ")
         val xGoogApiKeyHeader = if (isOauthToken) null else trimmedKey
         val apiKeyQueryParam = if (isOauthToken) null else trimmedKey
         val authHeader = if (isOauthToken) {

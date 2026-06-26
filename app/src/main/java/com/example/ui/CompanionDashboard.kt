@@ -1764,7 +1764,7 @@ fun StrategicAiTab(
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Text(
-                            "GEMINI 3.5 FLASH",
+                            "GEMINI 2.5 FLASH",
                             color = RangoDesertGold,
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold
