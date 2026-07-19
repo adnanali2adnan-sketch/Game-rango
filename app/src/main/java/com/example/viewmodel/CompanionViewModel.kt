@@ -16,6 +16,9 @@ import com.example.data.AndarBaharRound
 import com.example.data.AndarBaharAnalyzer
 import com.example.data.SevenUpDownRound
 import com.example.data.SevenUpDownAnalyzer
+import com.example.data.BaccaratRound
+import com.example.data.BaccaratDao
+import com.example.data.BaccaratAnalyzer
 import com.example.api.GeminiClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -31,6 +34,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
     private val dtDao: DragonTigerDao
     private val abDao: com.example.data.AndarBaharDao
     private val sevenDao: com.example.data.SevenUpDownDao
+    private val baccaratDao: BaccaratDao
     private val context = application.applicationContext
 
     private val _geminiApiKey = MutableStateFlow("")
@@ -45,6 +49,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
         dtDao = database.dragonTigerDao()
         abDao = database.andarBaharDao()
         sevenDao = database.sevenUpDownDao()
+        baccaratDao = database.baccaratDao()
         _geminiApiKey.value = com.example.util.SecurePrefs.getGeminiApiKey(context)
         
         // Load default game setting safely
@@ -107,6 +112,9 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
             if (clean.contains("UP") || clean == "U") return "UP"
             if (clean.contains("DOWN") || clean == "D") return "DOWN"
             if (clean.contains("SEVEN") || clean == "7") return "SEVEN"
+            if (clean.contains("PLAYER") || clean == "P") return "PLAYER"
+            if (clean.contains("BANKER") || clean == "B") return "BANKER"
+            if (clean.contains("TIE") || clean == "T") return "TIE"
         }
         return "UNCERTAIN"
     }
@@ -155,6 +163,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
     fun clearDTRounds() {
         viewModelScope.launch {
             dtDao.clearAll()
+            _aiAdviceText.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
         }
     }
 
@@ -214,6 +223,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
     fun clearABRounds() {
         viewModelScope.launch {
             abDao.clearAll()
+            _aiAdviceText.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
         }
     }
 
@@ -274,6 +284,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
     fun clearSevenRounds() {
         viewModelScope.launch {
             sevenDao.clearAll()
+            _aiAdviceText.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
         }
     }
 
@@ -286,6 +297,67 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
     fun updateSevenRoundStatus(id: Int, isWin: Boolean?) {
         viewModelScope.launch {
             sevenDao.updateRoundStatus(id, isWin)
+        }
+    }
+
+    val baccaratRounds: StateFlow<List<BaccaratRound>> = baccaratDao.getAllRounds()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    val baccaratResult: StateFlow<BaccaratAnalyzer.BaccaratResult> = baccaratRounds
+        .map { rounds -> BaccaratAnalyzer.analyze(rounds) }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = BaccaratAnalyzer.analyze(emptyList())
+        )
+
+    fun addBaccaratRound(result: String) {
+        viewModelScope.launch {
+            val pred = baccaratResult.value.predictedNext
+            val source = if (_geminiApiKey.value.isNotBlank() && _aiAdviceText.value.isNotBlank() && _currentGame.value == "BACCARAT") "AI" else "LOCAL"
+            val finalPred = if (source == "AI") {
+                val parsed = parseAiRecommendation(_aiAdviceText.value)
+                if (parsed != "UNCERTAIN") parsed else pred
+            } else {
+                pred
+            }
+            val win = if (finalPred == "PLAYER" && result == "P") true 
+                      else if (finalPred == "BANKER" && result == "B") true 
+                      else if (finalPred == "TIE" && result == "T") true 
+                      else if (finalPred == "UNCERTAIN") null 
+                      else false
+            baccaratDao.insertRound(BaccaratRound(
+                result = result,
+                prediction = finalPred,
+                predictionSource = source,
+                isWin = win
+            ))
+            if (_geminiApiKey.value.isNotBlank()) {
+                refreshAiStrategy()
+            }
+        }
+    }
+
+    fun clearBaccaratRounds() {
+        viewModelScope.launch {
+            baccaratDao.clearAll()
+            _aiAdviceText.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
+        }
+    }
+
+    fun deleteBaccaratRound(id: Int) {
+        viewModelScope.launch {
+            baccaratDao.deleteRound(id)
+        }
+    }
+
+    fun updateBaccaratRoundStatus(id: Int, isWin: Boolean?) {
+        viewModelScope.launch {
+            baccaratDao.updateRoundStatus(id, isWin)
         }
     }
 
@@ -381,7 +453,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
     fun clearDatabase() {
         viewModelScope.launch {
             repository.clearAll()
-            _aiAdviceText.value = ""
+            _aiAdviceText.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
             _uiMessage.value = "All historic records cleared from app database."
         }
     }
@@ -397,10 +469,59 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
             val balanceValue = userBalanceInput.value.toDoubleOrNull() ?: 280.89
 
             val answer = when (game) {
+                "BACCARAT" -> {
+                    val recentList = baccaratDao.getRecentRounds(30)
+                    if (recentList.isEmpty()) {
+                        _aiAdviceText.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
+                        _isLoadingAdvice.value = false
+                        return@launch
+                    }
+                    
+                    val recent20 = recentList.take(20)
+                    val bacResult = BaccaratAnalyzer.analyze(recentList)
+                    
+                    val nonTieRounds = recentList.filter { it.result == "P" || it.result == "B" }
+                    val chronologicalNonTies = nonTieRounds.reversed()
+                    val columns = mutableListOf<MutableList<String>>()
+                    for (round in chronologicalNonTies) {
+                        val res = round.result
+                        if (columns.isEmpty() || columns.last().first() != res) {
+                            columns.add(mutableListOf(res))
+                        } else {
+                            columns.last().add(res)
+                        }
+                    }
+                    val bigRoadStr = columns.joinToString(" | ") { col -> col.joinToString(",") }
+
+                    val customPrompt = """
+                        You are an elite, professional Casino Baccarat Game Analyzer.
+                        
+                        CURRENT SESSION DATA:
+                        - Current Game Mode: BACCARAT
+                        - Wallet Balance: PKR $balanceValue
+                        - Last 20 Rounds (Newest first): ${recent20.joinToString(", ") { it.result }} (P=Player, B=Banker, T/TIE=Tie)
+                        
+                        CASINO MULTI-ROAD MATRIX ANALYSIS:
+                        - Big Road Structure: $bigRoadStr
+                        - Big Eye Boy State: ${bacResult.bigEyeBoySignal} (RED = continuation, BLUE = reversal)
+                        - Small Road State: ${bacResult.smallRoadSignal} (RED = continuation, BLUE = reversal)
+                        - Cockroach Road State: ${bacResult.cockroachRoadSignal} (RED = continuation, BLUE = reversal)
+                        - Current Streak: ${bacResult.currentStreak} (Streak length: ${bacResult.streakCount})
+                        - Road Signals Summary: Big Eye Boy = ${bacResult.bigEyeBoySignal}, Small Road = ${bacResult.smallRoadSignal}, Cockroach = ${bacResult.cockroachRoadSignal}
+                        - Offline Road Voting Decision: ${bacResult.finalRoadDecision}
+
+                        Analyze this layout and formulate your tactical strategy.
+                        Your response MUST be formatted exactly as below (maximum 2 lines total, extremely concise, sharp and direct, no disclaimers):
+                        RECOMMENDATION: [PLAYER / BANKER / TIE / STANDBY]
+                        REASON: [Short 1-sentence explanation of why]
+                    """.trimIndent()
+
+                    GeminiClient.getStrategyAdvice(customPrompt, customKey)
+                }
                 "DRAGON_TIGER" -> {
                     val recentList = dtDao.getRecentRounds(30)
                     if (recentList.isEmpty()) {
-                        _aiAdviceText.value = "Lobby history is currently empty. Please log some Dragon Tiger rounds to begin analysis."
+                        _aiAdviceText.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
                         _isLoadingAdvice.value = false
                         return@launch
                     }
@@ -449,7 +570,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
                 "ANDAR_BAHAR" -> {
                     val recentList = abDao.getRecentRounds(30)
                     if (recentList.isEmpty()) {
-                        _aiAdviceText.value = "Lobby history is currently empty. Please log some Andar Bahar rounds to begin analysis."
+                        _aiAdviceText.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
                         _isLoadingAdvice.value = false
                         return@launch
                     }
@@ -460,7 +581,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
                 "SEVEN_UP_DOWN" -> {
                     val recentList = sevenDao.getRecentRounds(30)
                     if (recentList.isEmpty()) {
-                        _aiAdviceText.value = "Lobby history is currently empty. Please log some 7 Up Down rounds to begin analysis."
+                        _aiAdviceText.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
                         _isLoadingAdvice.value = false
                         return@launch
                     }
@@ -471,7 +592,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
                 else -> {
                     val recentList = repository.getRecentLimit(15)
                     if (recentList.isEmpty()) {
-                        _aiAdviceText.value = "Lobby history is currently empty. Please log some round outcomes to get AI advisory support. (Lobby history khali hai!)"
+                        _aiAdviceText.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
                         _isLoadingAdvice.value = false
                         return@launch
                     }

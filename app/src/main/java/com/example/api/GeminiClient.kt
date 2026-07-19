@@ -502,12 +502,22 @@ object GeminiClient {
 
     suspend fun analyzeGame(
         apiKey: String,
-        gameType: String,  // "RANGO" / "DRAGON_TIGER" / "AVIATOR" / "ANDAR_BAHAR" / "SEVEN_UP_DOWN"
+        gameType: String,  // "RANGO" / "DRAGON_TIGER" / "AVIATOR" / "ANDAR_BAHAR" / "SEVEN_UP_DOWN" / "BACCARAT"
         data: String,      // multipliers or history logs
         balance: Double,
         trendLabel: String
     ): String {
         val prompt = when (gameType) {
+            "BACCARAT" -> """
+                You are elite Baccarat card game advisor.
+                Recent results (newest first): $data (P=Player, B=Banker, T=Tie)
+                Balance: PKR $balance. Current trend: $trendLabel.
+                
+                Your response MUST be formatted exactly as below (maximum 2 lines total, extremely concise, sharp and direct, no disclaimers):
+                RECOMMENDATION: [PLAYER / BANKER / TIE / STANDBY]
+                REASON: [Short 1-sentence explanation of why]
+            """.trimIndent()
+
             "DRAGON_TIGER" -> """
                 You are elite Dragon Tiger card game advisor.
                 Recent results (newest first): $data (D=Dragon,T=Tiger,X/P=Tie)

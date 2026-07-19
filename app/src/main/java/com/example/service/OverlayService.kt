@@ -123,6 +123,7 @@ class OverlayService : Service() {
     private lateinit var dtDao: DragonTigerDao
     private lateinit var abDao: com.example.data.AndarBaharDao
     private lateinit var sevenDao: com.example.data.SevenUpDownDao
+    private lateinit var baccaratDao: com.example.data.BaccaratDao
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     
     // HUD setup
@@ -135,6 +136,7 @@ class OverlayService : Service() {
     private var recentDtRoundsList = MutableStateFlow<List<DragonTigerRound>>(emptyList())
     private var recentAbRoundsList = MutableStateFlow<List<com.example.data.AndarBaharRound>>(emptyList())
     private var recentSevenRoundsList = MutableStateFlow<List<com.example.data.SevenUpDownRound>>(emptyList())
+    private var recentBaccaratRoundsList = MutableStateFlow<List<com.example.data.BaccaratRound>>(emptyList())
     
     // Floating View States
     private var isExpanded = MutableStateFlow(false)
@@ -217,6 +219,7 @@ class OverlayService : Service() {
         dtDao = database.dragonTigerDao()
         abDao = database.andarBaharDao()
         sevenDao = database.sevenUpDownDao()
+        baccaratDao = database.baccaratDao()
         
         // Listen to Room updates to keep our recent items list in sync!
         serviceScope.launch {
@@ -247,6 +250,13 @@ class OverlayService : Service() {
         serviceScope.launch {
             sevenDao.getAllRounds().collect { list ->
                 recentSevenRoundsList.value = list.take(30)
+            }
+        }
+
+        // Listen to Baccarat updates
+        serviceScope.launch {
+            baccaratDao.getAllRounds().collect { list ->
+                recentBaccaratRoundsList.value = list.take(30)
             }
         }
 
@@ -603,6 +613,9 @@ class OverlayService : Service() {
             if (clean.contains("UP") || clean == "U") return "UP"
             if (clean.contains("DOWN") || clean == "D") return "DOWN"
             if (clean.contains("SEVEN") || clean == "7") return "SEVEN"
+            if (clean.contains("PLAYER") || clean == "P") return "PLAYER"
+            if (clean.contains("BANKER") || clean == "B") return "BANKER"
+            if (clean.contains("TIE") || clean == "T") return "TIE"
         }
         return "UNCERTAIN"
     }
@@ -654,15 +667,22 @@ class OverlayService : Service() {
         serviceScope.launch {
             dtDao.deleteLastRound()
             captureLogs.value = "Last round undone"
-            triggerRealtimeGeminiPipeline(force = true)
+            val remaining = dtDao.getRecentRounds(1)
+            if (remaining.isEmpty()) {
+                recentDtRoundsList.value = emptyList()
+                geminiAiAdvice.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
+            } else {
+                triggerRealtimeGeminiPipeline(force = true)
+            }
         }
     }
 
     private fun clearAllDragonTigerRounds() {
         serviceScope.launch {
             dtDao.clearAll()
+            recentDtRoundsList.value = emptyList()
+            geminiAiAdvice.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
             captureLogs.value = "All rounds cleared"
-            triggerRealtimeGeminiPipeline(force = true)
         }
     }
 
@@ -698,15 +718,22 @@ class OverlayService : Service() {
         serviceScope.launch {
             abDao.deleteLastRound()
             captureLogs.value = "Last round undone"
-            triggerRealtimeGeminiPipeline(force = true)
+            val remaining = abDao.getRecentRounds(1)
+            if (remaining.isEmpty()) {
+                recentAbRoundsList.value = emptyList()
+                geminiAiAdvice.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
+            } else {
+                triggerRealtimeGeminiPipeline(force = true)
+            }
         }
     }
 
     private fun clearAllAndarBaharRounds() {
         serviceScope.launch {
             abDao.clearAll()
+            recentAbRoundsList.value = emptyList()
+            geminiAiAdvice.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
             captureLogs.value = "All rounds cleared"
-            triggerRealtimeGeminiPipeline(force = true)
         }
     }
 
@@ -743,15 +770,74 @@ class OverlayService : Service() {
         serviceScope.launch {
             sevenDao.deleteLastRound()
             captureLogs.value = "Last round undone"
-            triggerRealtimeGeminiPipeline(force = true)
+            val remaining = sevenDao.getRecentRounds(1)
+            if (remaining.isEmpty()) {
+                recentSevenRoundsList.value = emptyList()
+                geminiAiAdvice.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
+            } else {
+                triggerRealtimeGeminiPipeline(force = true)
+            }
         }
     }
 
     private fun clearAllSevenUpDownRounds() {
         serviceScope.launch {
             sevenDao.clearAll()
+            recentSevenRoundsList.value = emptyList()
+            geminiAiAdvice.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
             captureLogs.value = "All rounds cleared"
+        }
+    }
+
+    private fun addBaccaratRoundResult(result: String) {
+        serviceScope.launch {
+            val localResult = com.example.data.BaccaratAnalyzer.analyze(recentBaccaratRoundsList.value)
+            val pred = localResult.predictedNext
+            val hasGemini = geminiApiKey.value.isNotBlank() && geminiAiAdvice.value.isNotBlank()
+            val source = if (hasGemini) "AI" else "LOCAL"
+            val finalPred = if (source == "AI") {
+                val parsed = parseAiRecommendation(geminiAiAdvice.value)
+                if (parsed != "UNCERTAIN") parsed else pred
+            } else {
+                pred
+            }
+            val win = if (finalPred == "PLAYER" && result == "P") true 
+                      else if (finalPred == "BANKER" && result == "B") true 
+                      else if (finalPred == "TIE" && result == "T") true 
+                      else if (finalPred == "UNCERTAIN") null 
+                      else false
+
+            baccaratDao.insertRound(com.example.data.BaccaratRound(
+                result = result,
+                prediction = finalPred,
+                predictionSource = source,
+                isWin = win
+            ))
+            captureLogs.value = "Result logged: $result (${if (win == true) "WIN" else if (win == false) "LOSS" else "WAIT"})"
             triggerRealtimeGeminiPipeline(force = true)
+        }
+    }
+
+    private fun deleteLastBaccaratRound() {
+        serviceScope.launch {
+            baccaratDao.deleteLastRound()
+            captureLogs.value = "Last round undone"
+            val remaining = baccaratDao.getRecentRounds(1)
+            if (remaining.isEmpty()) {
+                recentBaccaratRoundsList.value = emptyList()
+                geminiAiAdvice.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
+            } else {
+                triggerRealtimeGeminiPipeline(force = true)
+            }
+        }
+    }
+
+    private fun clearAllBaccaratRounds() {
+        serviceScope.launch {
+            baccaratDao.clearAll()
+            recentBaccaratRoundsList.value = emptyList()
+            geminiAiAdvice.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
+            captureLogs.value = "All rounds cleared"
         }
     }
 
@@ -928,6 +1014,7 @@ class OverlayService : Service() {
         val recentDtList by recentDtRoundsList.collectAsState()
         val recentAbList by recentAbRoundsList.collectAsState()
         val recentSevenList by recentSevenRoundsList.collectAsState()
+        val recentBaccaratList by recentBaccaratRoundsList.collectAsState()
         
         val focusRequester = remember { FocusRequester() }
         val focusManager = LocalFocusManager.current
@@ -1183,7 +1270,300 @@ class OverlayService : Service() {
                 ) {
                     HorizontalDivider(color = RangoTealSky.copy(alpha = 0.5f), modifier = Modifier.padding(vertical = 1.dp))
 
-                    if (currentGameVal == "DRAGON_TIGER") {
+                    if (currentGameVal == "BACCARAT") {
+                        val bacResult = com.example.data.BaccaratAnalyzer.analyze(recentBaccaratList)
+                        
+                        // Trend status banner
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(Color.Black.copy(alpha = 0.35f))
+                                .padding(vertical = 1.dp, horizontal = 3.dp),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            Text(
+                                text = "${bacResult.trendEmoji} ${bacResult.trendLabel}",
+                                color = when (bacResult.riskLevel) {
+                                    "HIGH RISK" -> RangoDangerRed
+                                    "MED RISK" -> RangoDesertGold
+                                    else -> RangoLimeGreen
+                                },
+                                fontSize = if (isLandscape) 7.5.sp else 8.5.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                        
+                        // Prediction Grid
+                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(1.dp)
+                            ) {
+                                BoxMetricItem(
+                                    title = "NEXT BET",
+                                    value = bacResult.suggestedBet,
+                                    bgColor = when {
+                                        bacResult.suggestedBet.contains("PLAYER") -> Color(0xFF1565C0)
+                                        bacResult.suggestedBet.contains("BANKER") -> Color(0xFFC62828)
+                                        else -> Color(0xFF37474F)
+                                    },
+                                    valueColor = Color.White,
+                                    modifier = Modifier.weight(1.3f)
+                                )
+                                BoxMetricItem(
+                                    title = "STREAK",
+                                    value = bacResult.currentStreak,
+                                    bgColor = Color(0xFF0D47A1),
+                                    valueColor = Color.White,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(1.dp)
+                            ) {
+                                BoxMetricItem(
+                                    title = "PLAYER%",
+                                    value = "${bacResult.playerPct}%",
+                                    bgColor = Color(0xFF0D47A1),
+                                    valueColor = Color.White,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                BoxMetricItem(
+                                    title = "BANKER%",
+                                    value = "${bacResult.bankerPct}%",
+                                    bgColor = Color(0xFFB71C1C),
+                                    valueColor = Color.White,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                BoxMetricItem(
+                                    title = "TIE%",
+                                    value = "${bacResult.tiePct}%",
+                                    bgColor = Color(0xFF4A148C),
+                                    valueColor = Color.White,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+
+                        // derived roads
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(0.5.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(Color.Black.copy(alpha = 0.4f))
+                                .padding(vertical = 1.5.dp, horizontal = 3.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("BIG EYE BOY:", color = RangoTextMuted, fontSize = if (isLandscape) 5.5.sp else 7.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = bacResult.bigEyeBoySignal,
+                                    color = if (bacResult.bigEyeBoySignal == "RED") RangoDangerRed else if (bacResult.bigEyeBoySignal == "BLUE") Color(0xFF1E88E5) else Color.Gray,
+                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("SMALL ROAD:", color = RangoTextMuted, fontSize = if (isLandscape) 5.5.sp else 7.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = bacResult.smallRoadSignal,
+                                    color = if (bacResult.smallRoadSignal == "RED") RangoDangerRed else if (bacResult.smallRoadSignal == "BLUE") Color(0xFF1E88E5) else Color.Gray,
+                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("COCKROACH:", color = RangoTextMuted, fontSize = if (isLandscape) 5.5.sp else 7.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = bacResult.cockroachRoadSignal,
+                                    color = if (bacResult.cockroachRoadSignal == "RED") RangoDangerRed else if (bacResult.cockroachRoadSignal == "BLUE") Color(0xFF1E88E5) else Color.Gray,
+                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        // Last rounds for Baccarat
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(1.dp),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "LAST ROUNDS:",
+                                    color = RangoTextMuted,
+                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                if (recentBaccaratList.isEmpty()) {
+                                    Text(
+                                        text = "None",
+                                        color = Color.Gray,
+                                        fontSize = if (isLandscape) 6.sp else 7.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                } else {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        recentBaccaratList.take(8).forEach { round ->
+                                            val (letter, color) = when (round.result) {
+                                                "P" -> "P" to Color(0xFF1E88E5) // Blue
+                                                "B" -> "B" to RangoDangerRed   // Red
+                                                "T" -> "T" to Color(0xFF8E24AA) // Purple
+                                                else -> round.result to Color.White
+                                            }
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(if (isLandscape) 9.dp else 11.dp)
+                                                    .clip(RoundedCornerShape(1.5.dp))
+                                                    .background(color),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = letter,
+                                                    color = Color.White,
+                                                    fontSize = if (isLandscape) 5.5.sp else 7.sp,
+                                                    fontWeight = FontWeight.Black,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 1.6.dp))
+                        
+                        Text(
+                            text = "QUICK ENTRY RESULT",
+                            color = RangoTextMuted,
+                            fontSize = if (isLandscape) 6.sp else 7.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            // Player Button
+                            Box(
+                                modifier = Modifier
+                                    .weight(1.2f)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xFF1E88E5))
+                                    .clickable { addBaccaratRoundResult("P") }
+                                    .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "🔵 PLAYER",
+                                    color = Color.White,
+                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                            
+                            // Tie Button
+                            Box(
+                                modifier = Modifier
+                                    .weight(0.9f)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xFF8E24AA))
+                                    .clickable { addBaccaratRoundResult("T") }
+                                    .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "TIE",
+                                    color = Color.White,
+                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+
+                            // Banker Button
+                            Box(
+                                modifier = Modifier
+                                    .weight(1.2f)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(RangoDangerRed)
+                                    .clickable { addBaccaratRoundResult("B") }
+                                    .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "🔴 BANKER",
+                                    color = Color.White,
+                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                        }
+
+                        // Undo & Reset row
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color.DarkGray)
+                                    .clickable { deleteLastBaccaratRound() }
+                                    .padding(vertical = if (isLandscape) 4.dp else 5.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "↶ UNDO",
+                                    color = Color.White,
+                                    fontSize = if (isLandscape) 5.5.sp else 7.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xFFC62828))
+                                    .clickable { clearAllBaccaratRounds() }
+                                    .padding(vertical = if (isLandscape) 4.dp else 5.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "🗑️ RESET",
+                                    color = Color.White,
+                                    fontSize = if (isLandscape) 5.5.sp else 7.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 1.6.dp))
+                    } else if (currentGameVal == "DRAGON_TIGER") {
                         val dtResult = DragonTigerAnalyzer.analyze(recentDtList)
                         
                         // Trend status banner
@@ -2432,6 +2812,8 @@ class OverlayService : Service() {
                                         val badgeBg = when {
                                             recText.contains("DRAGON") -> Color(0xFF1E88E5).copy(alpha = 0.25f)
                                             recText.contains("TIGER") -> RangoDangerRed.copy(alpha = 0.25f)
+                                            recText.contains("PLAYER") -> Color(0xFF1E88E5).copy(alpha = 0.25f)
+                                            recText.contains("BANKER") -> RangoDangerRed.copy(alpha = 0.25f)
                                             recText.contains("TIE") -> Color(0xFF8E24AA).copy(alpha = 0.25f)
                                             recText.contains("CASHOUT") -> RangoLimeGreen.copy(alpha = 0.25f)
                                             recText.contains("BET") -> RangoLimeGreen.copy(alpha = 0.25f)
@@ -2440,6 +2822,8 @@ class OverlayService : Service() {
                                         val badgeTextCol = when {
                                             recText.contains("DRAGON") -> Color(0xFF64B5F6)
                                             recText.contains("TIGER") -> Color(0xFFFF8A80)
+                                            recText.contains("PLAYER") -> Color(0xFF64B5F6)
+                                            recText.contains("BANKER") -> Color(0xFFFF8A80)
                                             recText.contains("TIE") -> Color(0xFFE040FB)
                                             recText.contains("CASHOUT") -> RangoLimeGreen
                                             recText.contains("BET") -> RangoLimeGreen
@@ -2862,9 +3246,58 @@ class OverlayService : Service() {
             
             try {
                 val adviceResult = when (game) {
+                    "BACCARAT" -> {
+                        val recentList = recentBaccaratRoundsList.value
+                        if (recentList.isEmpty()) {
+                            geminiAiAdvice.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
+                            isGeminiLoading.value = false
+                            return@launch
+                        }
+                        val recent20 = recentList.take(20)
+                        val bacResult = com.example.data.BaccaratAnalyzer.analyze(recentList)
+                        
+                        val nonTieRounds = recentList.filter { it.result == "P" || it.result == "B" }
+                        val chronologicalNonTies = nonTieRounds.reversed()
+                        val columns = mutableListOf<MutableList<String>>()
+                        for (round in chronologicalNonTies) {
+                            val res = round.result
+                            if (columns.isEmpty() || columns.last().first() != res) {
+                                columns.add(mutableListOf(res))
+                            } else {
+                                columns.last().add(res)
+                            }
+                        }
+                        val bigRoadStr = columns.joinToString(" | ") { col -> col.joinToString(",") }
+
+                        val customPrompt = """
+                            You are an elite, professional Casino Baccarat Game Analyzer.
+                            
+                            CURRENT SESSION DATA:
+                            - Current Game Mode: BACCARAT
+                            - Wallet Balance: PKR $currentBalance
+                            - Last 20 Rounds (Newest first): ${recent20.joinToString(", ") { it.result }} (P=Player, B=Banker, T/TIE=Tie)
+                            
+                            CASINO MULTI-ROAD MATRIX ANALYSIS:
+                            - Big Road Structure: $bigRoadStr
+                            - Big Eye Boy State: ${bacResult.bigEyeBoySignal} (RED = continuation, BLUE = reversal)
+                            - Small Road State: ${bacResult.smallRoadSignal} (RED = continuation, BLUE = reversal)
+                            - Cockroach Road State: ${bacResult.cockroachRoadSignal} (RED = continuation, BLUE = reversal)
+                            - Current Streak: ${bacResult.currentStreak} (Streak length: ${bacResult.streakCount})
+                            - Road Signals Summary: Big Eye Boy = ${bacResult.bigEyeBoySignal}, Small Road = ${bacResult.smallRoadSignal}, Cockroach = ${bacResult.cockroachRoadSignal}
+                            - Offline Road Voting Decision: ${bacResult.finalRoadDecision}
+
+                            Analyze this layout and formulate your tactical strategy.
+                            Your response MUST be formatted exactly as below (maximum 2 lines total, extremely concise, sharp and direct, no disclaimers):
+                            RECOMMENDATION: [PLAYER / BANKER / TIE / STANDBY]
+                            REASON: [Short 1-sentence explanation of why]
+                        """.trimIndent()
+
+                        com.example.api.GeminiClient.getStrategyAdvice(customPrompt, key)
+                    }
                     "DRAGON_TIGER" -> {
                         val recentList = recentDtRoundsList.value
                         if (recentList.isEmpty()) {
+                            geminiAiAdvice.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
                             isGeminiLoading.value = false
                             return@launch
                         }
@@ -2912,6 +3345,7 @@ class OverlayService : Service() {
                     "ANDAR_BAHAR" -> {
                         val recentList = recentAbRoundsList.value
                         if (recentList.isEmpty()) {
+                            geminiAiAdvice.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
                             isGeminiLoading.value = false
                             return@launch
                         }
@@ -2922,6 +3356,7 @@ class OverlayService : Service() {
                     "SEVEN_UP_DOWN" -> {
                         val recentList = recentSevenRoundsList.value
                         if (recentList.isEmpty()) {
+                            geminiAiAdvice.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
                             isGeminiLoading.value = false
                             return@launch
                         }
@@ -2932,6 +3367,7 @@ class OverlayService : Service() {
                     else -> {
                         val recentList = recentMultipliersList.value.take(10)
                         if (recentList.isEmpty()) {
+                            geminiAiAdvice.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
                             isGeminiLoading.value = false
                             return@launch
                         }

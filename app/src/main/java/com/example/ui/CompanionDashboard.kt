@@ -71,6 +71,8 @@ fun CompanionDashboard(
     val abResult by viewModel.abResult.collectAsStateWithLifecycle()
     val sevenRounds by viewModel.sevenRounds.collectAsStateWithLifecycle()
     val sevenResult by viewModel.sevenResult.collectAsStateWithLifecycle()
+    val baccaratRounds by viewModel.baccaratRounds.collectAsStateWithLifecycle()
+    val baccaratResult by viewModel.baccaratResult.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val mainActivity = context as? MainActivity
@@ -79,6 +81,9 @@ fun CompanionDashboard(
         when (currentGame) {
             "DRAGON_TIGER" -> {
                 mainActivity?.updateHudMode("VERTICAL", "DRAGON_TIGER")
+            }
+            "BACCARAT" -> {
+                mainActivity?.updateHudMode("VERTICAL", "BACCARAT")
             }
             "AVIATOR" -> {
                 mainActivity?.updateHudMode("AUTO", "AVIATOR")
@@ -230,6 +235,7 @@ fun CompanionDashboard(
                 val gameList = listOf(
                     Triple("RANGO", "🎮 RANGO", RangoLimeGreen),
                     Triple("DRAGON_TIGER", "🐉 DRAGON TIGER", RangoDangerRed),
+                    Triple("BACCARAT", "🎰 BACCARAT", Color(0xFF1E88E5)),
                     Triple("AVIATOR", "✈️ AVIATOR", Color(0xFF1976D2)),
                     Triple("ANDAR_BAHAR", "🚪 ANDAR BAHAR", RangoTealSky),
                     Triple("SEVEN_UP_DOWN", "🎲 7 UP DOWN", RangoDesertGold)
@@ -304,7 +310,13 @@ fun CompanionDashboard(
                         onSevenRoundLogged = { viewModel.addSevenRound(it) },
                         onSevenClear = { viewModel.clearSevenRounds() },
                         onSevenDelete = { viewModel.deleteSevenRound(it) },
-                        onSevenStatusUpdate = { id, win -> viewModel.updateSevenRoundStatus(id, win) }
+                        onSevenStatusUpdate = { id, win -> viewModel.updateSevenRoundStatus(id, win) },
+                        baccaratRounds = baccaratRounds,
+                        baccaratResult = baccaratResult,
+                        onBaccaratRoundLogged = { viewModel.addBaccaratRound(it) },
+                        onBaccaratClear = { viewModel.clearBaccaratRounds() },
+                        onBaccaratDelete = { viewModel.deleteBaccaratRound(it) },
+                        onBaccaratStatusUpdate = { id, win -> viewModel.updateBaccaratRoundStatus(id, win) }
                     )
                     1 -> {
                         val apiKey by viewModel.geminiApiKey.collectAsStateWithLifecycle()
@@ -430,9 +442,24 @@ fun DashboardTab(
     onSevenRoundLogged: (String) -> Unit,
     onSevenClear: () -> Unit,
     onSevenDelete: (Int) -> Unit,
-    onSevenStatusUpdate: (Int, Boolean?) -> Unit
+    onSevenStatusUpdate: (Int, Boolean?) -> Unit,
+    baccaratRounds: List<com.example.data.BaccaratRound>,
+    baccaratResult: com.example.data.BaccaratAnalyzer.BaccaratResult,
+    onBaccaratRoundLogged: (String) -> Unit,
+    onBaccaratClear: () -> Unit,
+    onBaccaratDelete: (Int) -> Unit,
+    onBaccaratStatusUpdate: (Int, Boolean?) -> Unit
 ) {
-    if (currentGame == "DRAGON_TIGER") {
+    if (currentGame == "BACCARAT") {
+        BaccaratDashboardContent(
+            baccaratRounds = baccaratRounds,
+            baccaratResult = baccaratResult,
+            onBaccaratRoundLogged = onBaccaratRoundLogged,
+            onBaccaratClear = onBaccaratClear,
+            onBaccaratDelete = onBaccaratDelete,
+            onBaccaratStatusUpdate = onBaccaratStatusUpdate
+        )
+    } else if (currentGame == "DRAGON_TIGER") {
         DragonTigerDashboardContent(
             dtRounds = dtRounds,
             dtResult = dtResult,
@@ -476,6 +503,594 @@ fun DashboardTab(
             onCrashDelete = onCrashDelete,
             onCrashStatusUpdate = onCrashStatusUpdate
         )
+    }
+}
+
+@Composable
+fun BaccaratDashboardContent(
+    baccaratRounds: List<com.example.data.BaccaratRound>,
+    baccaratResult: com.example.data.BaccaratAnalyzer.BaccaratResult,
+    onBaccaratRoundLogged: (String) -> Unit,
+    onBaccaratClear: () -> Unit,
+    onBaccaratDelete: (Int) -> Unit,
+    onBaccaratStatusUpdate: (Int, Boolean?) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        contentPadding = PaddingValues(vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        // Activation & Overlay Status Card
+        item {
+            val context = LocalContext.current
+            val mainActivity = context as? MainActivity
+            
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(containerColor = RangoCardBg),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "🎰 BACCARAT AI COCKPIT HUD",
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            color = Color(0xFF1E88E5),
+                            fontWeight = FontWeight.Bold
+                        )
+                    )
+                    Text(
+                        "Run the background floating widget on top of the casino game. Tap quick entries to track trends instantly.",
+                        style = MaterialTheme.typography.bodySmall.copy(color = RangoTextMuted)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { mainActivity?.startFloatingCockpit("BACCARAT", "VERTICAL") },
+                            colors = ButtonDefaults.buttonColors(containerColor = RangoLimeGreen),
+                            modifier = Modifier.weight(1f).height(38.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.Dashboard, "bubble", tint = Color.Black, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("ACTIVATE HUD", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Baccarat Analytics Banner & Cards
+        item {
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(containerColor = RangoHorizon),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        "📊 DYNAMIC RISK & TELEMETRY ENGINE",
+                        color = RangoDesertGold,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                    )
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1.3f)) {
+                            Text("SUGGESTED NEXT", color = RangoTextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = baccaratResult.suggestedBet,
+                                color = if (baccaratResult.suggestedBet.contains("PLAYER")) Color(0xFF64B5F6) else if (baccaratResult.suggestedBet.contains("BANKER")) RangoDangerRed else Color.White,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Black
+                              )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("STREAK STATUS", color = RangoTextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(baccaratResult.currentStreak, color = RangoDesertGold, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    
+                    HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 4.dp))
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Player: ${baccaratResult.playerPct}%", color = Color(0xFF64B5F6), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text("Banker: ${baccaratResult.bankerPct}%", color = RangoDangerRed, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text("Tie: ${baccaratResult.tiePct}%", color = Color(0xFFE040FB), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+
+                    // 🎰 Advanced Baccarat Multi-Road Diagnostics Panel
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.Black.copy(alpha = 0.35f))
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            "🎰 BACCARAT MULTI-ROAD COCKPIT",
+                            color = RangoDesertGold,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("NEXT SIDE PREDICTION:", color = RangoTextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = if (baccaratResult.predictedNext == "UNCERTAIN") "STANDBY (UNCERTAIN)" else baccaratResult.predictedNext,
+                                color = if (baccaratResult.predictedNext == "PLAYER") Color(0xFF1E88E5) else if (baccaratResult.predictedNext == "BANKER") RangoDangerRed else Color.LightGray,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("ROAD VOTING DECISION:", color = RangoTextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = baccaratResult.finalRoadDecision,
+                                color = if (baccaratResult.finalRoadDecision == "CONTINUE") RangoLimeGreen else if (baccaratResult.finalRoadDecision == "REVERSAL") RangoDesertGold else Color.LightGray,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                        HorizontalDivider(color = RangoTealSky.copy(alpha = 0.2f), modifier = Modifier.padding(vertical = 2.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Big Eye Boy Signal:", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                            Text(
+                                text = baccaratResult.bigEyeBoySignal,
+                                color = if (baccaratResult.bigEyeBoySignal == "RED") RangoDangerRed else if (baccaratResult.bigEyeBoySignal == "BLUE") Color(0xFF1E88E5) else Color.Gray,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Small Road Signal:", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                            Text(
+                                text = baccaratResult.smallRoadSignal,
+                                color = if (baccaratResult.smallRoadSignal == "RED") RangoDangerRed else if (baccaratResult.smallRoadSignal == "BLUE") Color(0xFF1E88E5) else Color.Gray,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Cockroach Road Signal:", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                            Text(
+                                text = baccaratResult.cockroachRoadSignal,
+                                color = if (baccaratResult.cockroachRoadSignal == "RED") RangoDangerRed else if (baccaratResult.cockroachRoadSignal == "BLUE") Color(0xFF1E88E5) else Color.Gray,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color.Black.copy(alpha = 0.4f))
+                            .padding(8.dp)
+                    ) {
+                        Text(
+                            text = baccaratResult.advice,
+                            color = RangoTextWhite,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
+            }
+        }
+
+        // Quick Interactive Actions Card
+        item {
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(containerColor = RangoCardBg),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        "✏️ LOG CURRENT ROUND OUTCOME",
+                        color = RangoLimeGreen,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { onBaccaratRoundLogged("P") },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0)),
+                            modifier = Modifier.weight(1f).height(44.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("🔵 PLAYER", color = Color.White, fontWeight = FontWeight.Black, fontSize = 11.sp)
+                        }
+                        Button(
+                            onClick = { onBaccaratRoundLogged("T") },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8E24AA)),
+                            modifier = Modifier.weight(0.7f).height(44.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("TIE", color = Color.White, fontWeight = FontWeight.Black, fontSize = 11.sp)
+                        }
+                        Button(
+                            onClick = { onBaccaratRoundLogged("B") },
+                            colors = ButtonDefaults.buttonColors(containerColor = RangoDangerRed),
+                            modifier = Modifier.weight(1f).height(44.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("🔴 BANKER", color = Color.White, fontWeight = FontWeight.Black, fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Stats Card
+        item {
+            val totalRounds = baccaratRounds.size
+            val wins = baccaratRounds.count { it.isWin == true }
+            val losses = baccaratRounds.count { it.isWin == false }
+            val waits = baccaratRounds.count { it.isWin == null }
+            val winRate = if (totalRounds > 0) (wins * 100.0 / totalRounds) else 0.0
+
+            val localRounds = baccaratRounds.filter { it.predictionSource == "LOCAL" }
+            val localTotal = localRounds.size
+            val localWins = localRounds.count { it.isWin == true }
+            val localWinRate = if (localTotal > 0) (localWins * 100.0 / localTotal) else 0.0
+
+            val aiRounds = baccaratRounds.filter { it.predictionSource == "AI" }
+            val aiTotal = aiRounds.size
+            val aiWins = aiRounds.count { it.isWin == true }
+            val aiWinRate = if (aiTotal > 0) (aiWins * 100.0 / aiTotal) else 0.0
+
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(containerColor = RangoHorizon),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "📊 SESSION SCORECARD & WIN RATES",
+                        color = RangoDesertGold,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("TOTAL", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Text("$totalRounds", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        }
+                        Column {
+                            Text("WINS", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Text("$wins", color = RangoLimeGreen, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        }
+                        Column {
+                            Text("LOSSES", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Text("$losses", color = RangoDangerRed, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        }
+                        Column {
+                            Text("WAITS", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Text("$waits", color = RangoDesertGold, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        }
+                        Column {
+                            Text("WIN RATE", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            Text("${String.format("%.1f", winRate)}%", color = RangoLimeGreen, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        }
+                    }
+
+                    HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 4.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = RangoCardBg),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("LOCAL PREDICTIONS", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.height(2.dp))
+                                Text("${String.format("%.1f", localWinRate)}%", color = RangoLimeGreen, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text("Rounds: $localTotal", color = RangoTextMuted, fontSize = 8.sp)
+                            }
+                        }
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = RangoCardBg),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("AI PREDICTIONS", color = RangoTextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.height(2.dp))
+                                Text("${String.format("%.1f", aiWinRate)}%", color = RangoDesertGold, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text("Rounds: $aiTotal", color = RangoTextMuted, fontSize = 8.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // History Log and Reset Header
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "HISTORICAL BACCARAT CARDS LOGS (${baccaratRounds.size})",
+                    style = MaterialTheme.typography.titleSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = RangoTextMuted,
+                        letterSpacing = 0.5.sp
+                    )
+                )
+                IconButton(
+                    onClick = onBaccaratClear,
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(Icons.Default.DeleteSweep, "Clear database", tint = RangoDangerRed)
+                }
+            }
+        }
+
+        if (baccaratRounds.isEmpty()) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "No cards rounds logged yet. Tap outcomes above to trace trends.",
+                        color = RangoTextMuted,
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+        } else {
+            items(baccaratRounds) { round ->
+                BaccaratHistoryRowItem(
+                    round = round,
+                    onDelete = onBaccaratDelete,
+                    onStatusUpdate = onBaccaratStatusUpdate
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun BaccaratHistoryRowItem(
+    round: com.example.data.BaccaratRound,
+    onDelete: (Int) -> Unit,
+    onStatusUpdate: (Int, Boolean?) -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = RangoCardBg,
+            contentColor = Color.White
+        ),
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val bg = when (round.result) {
+                        "P" -> Color(0xFF1E88E5)
+                        "B" -> RangoDangerRed
+                        else -> Color(0xFF8E24AA)
+                    }
+                    val label = when (round.result) {
+                        "P" -> "PLAYER"
+                        "B" -> "BANKER"
+                        else -> "TIE"
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .background(bg, RoundedCornerShape(4.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (round.result == "P") "P" else if (round.result == "B") "B" else "T",
+                            color = Color.White,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 14.sp
+                        )
+                    }
+
+                    Column {
+                        Text(
+                            text = label,
+                            color = RangoTextWhite,
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+
+                        Text(
+                            text = "Pred: ${round.prediction.ifBlank { "None" }} (${round.predictionSource})",
+                            style = MaterialTheme.typography.bodySmall.copy(color = RangoTextMuted)
+                        )
+                    }
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val badgeBg = when (round.isWin) {
+                        true -> RangoLimeGreen.copy(alpha = 0.2f)
+                        false -> RangoDangerRed.copy(alpha = 0.2f)
+                        null -> RangoDesertGold.copy(alpha = 0.2f)
+                    }
+                    val badgeColor = when (round.isWin) {
+                        true -> RangoLimeGreen
+                        false -> RangoDangerRed
+                        null -> RangoDesertGold
+                    }
+                    val badgeText = when (round.isWin) {
+                        true -> "WIN"
+                        false -> "LOSS"
+                        null -> "WAIT"
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(badgeBg)
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = badgeText,
+                            color = badgeColor,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { onDelete(round.id) },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete Round",
+                            tint = RangoDangerRed.copy(alpha = 0.8f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+
+            // Quick Feedback Buttons to manually override / set outcome
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Feedback:",
+                    color = RangoTextMuted,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(end = 8.dp)
+                )
+
+                OutlinedButton(
+                    onClick = { onStatusUpdate(round.id, true) },
+                    border = BorderStroke(1.dp, if (round.isWin == true) RangoLimeGreen else Color.Gray.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(4.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = if (round.isWin == true) RangoLimeGreen.copy(alpha = 0.1f) else Color.Transparent
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier
+                        .height(26.dp)
+                        .padding(end = 6.dp)
+                ) {
+                    Icon(Icons.Default.Check, "Win", tint = RangoLimeGreen, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(2.dp))
+                    Text("Win", color = RangoLimeGreen, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                }
+
+                OutlinedButton(
+                    onClick = { onStatusUpdate(round.id, false) },
+                    border = BorderStroke(1.dp, if (round.isWin == false) RangoDangerRed else Color.Gray.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(4.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = if (round.isWin == false) RangoDangerRed.copy(alpha = 0.1f) else Color.Transparent
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.height(26.dp)
+                ) {
+                    Icon(Icons.Default.Close, "Loss", tint = RangoDangerRed, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(2.dp))
+                    Text("Loss", color = RangoDangerRed, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                }
+
+                OutlinedButton(
+                    onClick = { onStatusUpdate(round.id, null) },
+                    border = BorderStroke(1.dp, if (round.isWin == null) RangoDesertGold else Color.Gray.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(4.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = if (round.isWin == null) RangoDesertGold.copy(alpha = 0.1f) else Color.Transparent
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier
+                        .height(26.dp)
+                        .padding(start = 6.dp)
+                ) {
+                    Icon(Icons.Default.HourglassEmpty, "Wait", tint = RangoDesertGold, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(2.dp))
+                    Text("Wait", color = RangoDesertGold, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
     }
 }
 
