@@ -108,7 +108,7 @@ dependencies {
   implementation(libs.okhttp)
   // implementation(libs.play.services.location)
   implementation(libs.retrofit)
-  implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
+  implementation("com.google.mlkit:text-recognition:16.0.0")
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)

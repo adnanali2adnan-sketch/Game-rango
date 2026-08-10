@@ -40,6 +40,10 @@ import com.example.data.AndarBaharRound
 import com.example.data.AndarBaharAnalyzer
 import com.example.data.SevenUpDownRound
 import com.example.data.SevenUpDownAnalyzer
+import com.example.data.BaccaratRound
+import com.example.data.BaccaratAnalyzer
+import com.example.data.RouletteRound
+import com.example.data.RouletteAnalyzer
 import com.example.MainActivity
 import com.example.ui.theme.*
 import com.example.viewmodel.CompanionViewModel
@@ -73,6 +77,8 @@ fun CompanionDashboard(
     val sevenResult by viewModel.sevenResult.collectAsStateWithLifecycle()
     val baccaratRounds by viewModel.baccaratRounds.collectAsStateWithLifecycle()
     val baccaratResult by viewModel.baccaratResult.collectAsStateWithLifecycle()
+    val rouletteRounds by viewModel.rouletteRounds.collectAsStateWithLifecycle()
+    val rouletteResult by viewModel.rouletteResult.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val mainActivity = context as? MainActivity
@@ -84,6 +90,9 @@ fun CompanionDashboard(
             }
             "BACCARAT" -> {
                 mainActivity?.updateHudMode("VERTICAL", "BACCARAT")
+            }
+            "ROULETTE" -> {
+                mainActivity?.updateHudMode("VERTICAL", "ROULETTE")
             }
             "AVIATOR" -> {
                 mainActivity?.updateHudMode("AUTO", "AVIATOR")
@@ -236,6 +245,7 @@ fun CompanionDashboard(
                     Triple("RANGO", "🎮 RANGO", RangoLimeGreen),
                     Triple("DRAGON_TIGER", "🐉 DRAGON TIGER", RangoDangerRed),
                     Triple("BACCARAT", "🎰 BACCARAT", Color(0xFF1E88E5)),
+                    Triple("ROULETTE", "🎡 ROULETTE", Color(0xFFE53935)),
                     Triple("AVIATOR", "✈️ AVIATOR", Color(0xFF1976D2)),
                     Triple("ANDAR_BAHAR", "🚪 ANDAR BAHAR", RangoTealSky),
                     Triple("SEVEN_UP_DOWN", "🎲 7 UP DOWN", RangoDesertGold)
@@ -316,7 +326,13 @@ fun CompanionDashboard(
                         onBaccaratRoundLogged = { viewModel.addBaccaratRound(it) },
                         onBaccaratClear = { viewModel.clearBaccaratRounds() },
                         onBaccaratDelete = { viewModel.deleteBaccaratRound(it) },
-                        onBaccaratStatusUpdate = { id, win -> viewModel.updateBaccaratRoundStatus(id, win) }
+                        onBaccaratStatusUpdate = { id, win -> viewModel.updateBaccaratRoundStatus(id, win) },
+                        rouletteRounds = rouletteRounds,
+                        rouletteResult = rouletteResult,
+                        onRouletteRoundLogged = { viewModel.addRouletteRound(it) },
+                        onRouletteClear = { viewModel.clearRouletteRounds() },
+                        onRouletteDelete = { viewModel.deleteRouletteRound(it) },
+                        onRouletteStatusUpdate = { id, win -> viewModel.updateRouletteRoundStatus(id, win) }
                     )
                     1 -> {
                         val apiKey by viewModel.geminiApiKey.collectAsStateWithLifecycle()
@@ -448,7 +464,13 @@ fun DashboardTab(
     onBaccaratRoundLogged: (String) -> Unit,
     onBaccaratClear: () -> Unit,
     onBaccaratDelete: (Int) -> Unit,
-    onBaccaratStatusUpdate: (Int, Boolean?) -> Unit
+    onBaccaratStatusUpdate: (Int, Boolean?) -> Unit,
+    rouletteRounds: List<RouletteRound> = emptyList(),
+    rouletteResult: RouletteAnalyzer.RouletteResult = RouletteAnalyzer.analyze(emptyList()),
+    onRouletteRoundLogged: (String) -> Unit = {},
+    onRouletteClear: () -> Unit = {},
+    onRouletteDelete: (Int) -> Unit = {},
+    onRouletteStatusUpdate: (Int, Boolean?) -> Unit = { _, _ -> }
 ) {
     if (currentGame == "BACCARAT") {
         BaccaratDashboardContent(
@@ -458,6 +480,15 @@ fun DashboardTab(
             onBaccaratClear = onBaccaratClear,
             onBaccaratDelete = onBaccaratDelete,
             onBaccaratStatusUpdate = onBaccaratStatusUpdate
+        )
+    } else if (currentGame == "ROULETTE") {
+        RouletteDashboardContent(
+            rouletteRounds = rouletteRounds,
+            rouletteResult = rouletteResult,
+            onRouletteRoundLogged = onRouletteRoundLogged,
+            onRouletteClear = onRouletteClear,
+            onRouletteDelete = onRouletteDelete,
+            onRouletteStatusUpdate = onRouletteStatusUpdate
         )
     } else if (currentGame == "DRAGON_TIGER") {
         DragonTigerDashboardContent(
@@ -1088,6 +1119,321 @@ fun BaccaratHistoryRowItem(
                     Icon(Icons.Default.HourglassEmpty, "Wait", tint = RangoDesertGold, modifier = Modifier.size(12.dp))
                     Spacer(Modifier.width(2.dp))
                     Text("Wait", color = RangoDesertGold, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun RouletteDashboardContent(
+    rouletteRounds: List<RouletteRound>,
+    rouletteResult: RouletteAnalyzer.RouletteResult,
+    onRouletteRoundLogged: (String) -> Unit,
+    onRouletteClear: () -> Unit,
+    onRouletteDelete: (Int) -> Unit,
+    onRouletteStatusUpdate: (Int, Boolean?) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        contentPadding = PaddingValues(vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        // Activation & Overlay Status Card
+        item {
+            val context = LocalContext.current
+            val mainActivity = context as? MainActivity
+            
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(containerColor = RangoCardBg),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "🎡 ROULETTE AI COCKPIT HUD",
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            color = Color(0xFFE53935),
+                            fontWeight = FontWeight.Bold
+                        )
+                    )
+                    Text(
+                        "Run the background floating widget on top of the casino game. Tap quick spin entries to calculate table bias & streaks instantly.",
+                        style = MaterialTheme.typography.bodySmall.copy(color = RangoTextMuted)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { mainActivity?.startFloatingCockpit("ROULETTE", "VERTICAL") },
+                            colors = ButtonDefaults.buttonColors(containerColor = RangoLimeGreen),
+                            modifier = Modifier.weight(1f).height(38.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.Dashboard, "bubble", tint = Color.Black, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("ACTIVATE HUD", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Roulette Analytics Banner & Cards
+        item {
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(containerColor = RangoHorizon),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        "📊 DYNAMIC ROULETTE MATRIX",
+                        color = Color(0xFFE53935),
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1.3f)) {
+                            Text("SUGGESTED NEXT", color = RangoTextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = rouletteResult.suggestedBet,
+                                color = when {
+                                    rouletteResult.suggestedBet.contains("RED") -> RangoDangerRed
+                                    rouletteResult.suggestedBet.contains("BLACK") -> Color.White
+                                    else -> Color(0xFF64B5F6)
+                                },
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("STREAK STATUS", color = RangoTextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(rouletteResult.currentStreak, color = RangoDesertGold, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 4.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Red: ${rouletteResult.redPct}%", color = RangoDangerRed, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text("Black: ${rouletteResult.blackPct}%", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text("Green: ${rouletteResult.greenPct}%", color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text("Even: ${rouletteResult.evenPct}%", color = Color(0xFF64B5F6), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.Black.copy(alpha = 0.4f))
+                            .padding(10.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "HOT: ${rouletteResult.hotColor}  |  COLD: ${rouletteResult.coldColor}",
+                                color = RangoDesertGold,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = rouletteResult.advice,
+                                color = RangoTextMuted,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Quick Entry Buttons
+        item {
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(containerColor = RangoCardBg),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        "🎡 QUICK SPIN ENTRY",
+                        style = MaterialTheme.typography.labelSmall.copy(color = Color.White, fontWeight = FontWeight.Bold)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { onRouletteRoundLogged("RED") },
+                            colors = ButtonDefaults.buttonColors(containerColor = RangoDangerRed),
+                            modifier = Modifier.weight(1f).height(42.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("🔴 RED", color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+
+                        Button(
+                            onClick = { onRouletteRoundLogged("0") },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                            modifier = Modifier.weight(0.8f).height(42.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("🟢 0", color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+
+                        Button(
+                            onClick = { onRouletteRoundLogged("BLACK") },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Black),
+                            modifier = Modifier.weight(1f).height(42.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("⚫ BLACK", color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Spin History
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "🎡 RECENT SPINS (${rouletteRounds.size})",
+                    style = MaterialTheme.typography.titleMedium.copy(color = Color.White, fontWeight = FontWeight.Bold)
+                )
+                if (rouletteRounds.isNotEmpty()) {
+                    TextButton(onClick = onRouletteClear) {
+                        Text("RESET ALL", color = RangoDangerRed, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        if (rouletteRounds.isEmpty()) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("No roulette spins recorded yet. Tap RED / 0 / BLACK above.", color = RangoTextMuted, fontSize = 12.sp)
+                }
+            }
+        } else {
+            items(rouletteRounds, key = { it.id }) { round ->
+                ElevatedCard(
+                    colors = CardDefaults.elevatedCardColors(containerColor = RangoCardBg),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        when (round.color) {
+                                            "RED" -> RangoDangerRed
+                                            "BLACK" -> Color.Black
+                                            else -> Color(0xFF2E7D32)
+                                        }
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = round.number?.toString() ?: round.result.take(1),
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp
+                                )
+                            }
+
+                            Column {
+                                Text(
+                                    text = "Result: ${round.result} (${round.color})",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                                Text(
+                                    text = "Prediction: ${round.prediction.ifBlank { "NONE" }}",
+                                    color = RangoTextMuted,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedButton(
+                                onClick = { onRouletteStatusUpdate(round.id, true) },
+                                border = BorderStroke(1.dp, if (round.isWin == true) RangoLimeGreen else Color.Gray.copy(alpha = 0.4f)),
+                                shape = RoundedCornerShape(4.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = if (round.isWin == true) RangoLimeGreen.copy(alpha = 0.15f) else Color.Transparent
+                                ),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(26.dp)
+                            ) {
+                                Icon(Icons.Default.Check, "Win", tint = RangoLimeGreen, modifier = Modifier.size(12.dp))
+                                Spacer(Modifier.width(2.dp))
+                                Text("Win", color = RangoLimeGreen, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            OutlinedButton(
+                                onClick = { onRouletteStatusUpdate(round.id, false) },
+                                border = BorderStroke(1.dp, if (round.isWin == false) RangoDangerRed else Color.Gray.copy(alpha = 0.4f)),
+                                shape = RoundedCornerShape(4.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = if (round.isWin == false) RangoDangerRed.copy(alpha = 0.1f) else Color.Transparent
+                                ),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(26.dp)
+                            ) {
+                                Icon(Icons.Default.Close, "Loss", tint = RangoDangerRed, modifier = Modifier.size(12.dp))
+                                Spacer(Modifier.width(2.dp))
+                                Text("Loss", color = RangoDangerRed, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            IconButton(onClick = { onRouletteDelete(round.id) }) {
+                                Icon(Icons.Default.Delete, "Delete", tint = RangoTextMuted, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
                 }
             }
         }

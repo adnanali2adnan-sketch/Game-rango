@@ -19,6 +19,9 @@ import com.example.data.SevenUpDownAnalyzer
 import com.example.data.BaccaratRound
 import com.example.data.BaccaratDao
 import com.example.data.BaccaratAnalyzer
+import com.example.data.RouletteRound
+import com.example.data.RouletteDao
+import com.example.data.RouletteAnalyzer
 import com.example.api.GeminiClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -35,6 +38,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
     private val abDao: com.example.data.AndarBaharDao
     private val sevenDao: com.example.data.SevenUpDownDao
     private val baccaratDao: BaccaratDao
+    private val rouletteDao: RouletteDao
     private val context = application.applicationContext
 
     private val _geminiApiKey = MutableStateFlow("")
@@ -50,6 +54,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
         abDao = database.andarBaharDao()
         sevenDao = database.sevenUpDownDao()
         baccaratDao = database.baccaratDao()
+        rouletteDao = database.rouletteDao()
         _geminiApiKey.value = com.example.util.SecurePrefs.getGeminiApiKey(context)
         
         // Load default game setting safely
@@ -115,6 +120,15 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
             if (clean.contains("PLAYER") || clean == "P") return "PLAYER"
             if (clean.contains("BANKER") || clean == "B") return "BANKER"
             if (clean.contains("TIE") || clean == "T") return "TIE"
+            if (clean.contains("RED")) return "RED"
+            if (clean.contains("BLACK")) return "BLACK"
+            if (clean.contains("EVEN")) return "EVEN"
+            if (clean.contains("ODD")) return "ODD"
+            if (clean.contains("HIGH")) return "HIGH"
+            if (clean.contains("LOW")) return "LOW"
+            if (clean.contains("1ST")) return "1ST DOZEN"
+            if (clean.contains("2ND")) return "2ND DOZEN"
+            if (clean.contains("3RD")) return "3RD DOZEN"
         }
         return "UNCERTAIN"
     }
@@ -361,6 +375,91 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    val rouletteRounds: StateFlow<List<RouletteRound>> = rouletteDao.getAllRounds()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    val rouletteResult: StateFlow<RouletteAnalyzer.RouletteResult> = rouletteRounds
+        .map { rounds -> RouletteAnalyzer.analyze(rounds) }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = RouletteAnalyzer.analyze(emptyList())
+        )
+
+    fun addRouletteRound(result: String) {
+        viewModelScope.launch {
+            val pred = rouletteResult.value.suggestedBet
+            val source = if (_geminiApiKey.value.isNotBlank() && _aiAdviceText.value.isNotBlank() && _currentGame.value == "ROULETTE") "AI" else "LOCAL"
+            val finalPred = if (source == "AI") {
+                val parsed = parseAiRecommendation(_aiAdviceText.value)
+                if (parsed != "UNCERTAIN") parsed else pred
+            } else {
+                pred
+            }
+
+            val num = result.toIntOrNull()
+            val color = if (num != null) {
+                RouletteAnalyzer.getColorForNumber(num)
+            } else {
+                when {
+                    result.contains("RED", ignoreCase = true) -> "RED"
+                    result.contains("BLACK", ignoreCase = true) -> "BLACK"
+                    result.contains("GREEN", ignoreCase = true) || result == "0" -> "GREEN"
+                    else -> "RED"
+                }
+            }
+
+            val win: Boolean? = when {
+                finalPred.contains("RED") && color == "RED" -> true
+                finalPred.contains("BLACK") && color == "BLACK" -> true
+                finalPred.contains("EVEN") && num != null && num != 0 && num % 2 == 0 -> true
+                finalPred.contains("ODD") && num != null && num % 2 != 0 -> true
+                finalPred.contains("HIGH") && num != null && num in 19..36 -> true
+                finalPred.contains("LOW") && num != null && num in 1..18 -> true
+                finalPred.contains("1ST") && num != null && num in 1..12 -> true
+                finalPred.contains("2ND") && num != null && num in 13..24 -> true
+                finalPred.contains("3RD") && num != null && num in 25..36 -> true
+                finalPred == "STANDBY" || finalPred == "UNCERTAIN" -> null
+                else -> false
+            }
+
+            rouletteDao.insertRound(RouletteRound(
+                result = result,
+                number = num,
+                color = color,
+                prediction = finalPred,
+                predictionSource = source,
+                isWin = win
+            ))
+            if (_geminiApiKey.value.isNotBlank()) {
+                refreshAiStrategy()
+            }
+        }
+    }
+
+    fun clearRouletteRounds() {
+        viewModelScope.launch {
+            rouletteDao.clearAll()
+            _aiAdviceText.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
+        }
+    }
+
+    fun deleteRouletteRound(id: Int) {
+        viewModelScope.launch {
+            rouletteDao.deleteRound(id)
+        }
+    }
+
+    fun updateRouletteRoundStatus(id: Int, isWin: Boolean?) {
+        viewModelScope.launch {
+            rouletteDao.updateRoundStatus(id, isWin)
+        }
+    }
+
     // State of AI Strategy Advisor
     private val _aiAdviceText = MutableStateFlow<String>("")
     val aiAdviceText: StateFlow<String> = _aiAdviceText.asStateFlow()
@@ -588,6 +687,38 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
                     val dataStr = recentList.take(20).joinToString(", ") { it.result }
                     val sevenResult = SevenUpDownAnalyzer.analyze(recentList)
                     GeminiClient.analyzeGame(customKey, "SEVEN_UP_DOWN", dataStr, balanceValue, sevenResult.trendLabel)
+                }
+                "ROULETTE" -> {
+                    val recentList = rouletteDao.getRecentRounds(30)
+                    if (recentList.isEmpty()) {
+                        _aiAdviceText.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
+                        _isLoadingAdvice.value = false
+                        return@launch
+                    }
+                    val roulResult = RouletteAnalyzer.analyze(recentList)
+                    val dataStr = recentList.take(20).joinToString(", ") { "${it.result}(${it.color})" }
+                    val customPrompt = """
+                        You are an elite, professional Casino Roulette Game Analyzer.
+                        
+                        CURRENT SESSION DATA:
+                        - Current Game Mode: ROULETTE
+                        - Wallet Balance: PKR $balanceValue
+                        - Last 20 Spins (Newest first): $dataStr
+                        
+                        ROULETTE STATISTICAL MATRIX:
+                        - Red / Black / Green: ${roulResult.redPct}% RED / ${roulResult.blackPct}% BLACK / ${roulResult.greenPct}% GREEN
+                        - Even / Odd: ${roulResult.evenPct}% EVEN / ${roulResult.oddPct}% ODD
+                        - High / Low: ${roulResult.highPct}% HIGH / ${roulResult.lowPct}% LOW
+                        - Dozens: 1st Dozen = ${roulResult.dozen1Pct}%, 2nd Dozen = ${roulResult.dozen2Pct}%, 3rd Dozen = ${roulResult.dozen3Pct}%
+                        - Current Streak: ${roulResult.currentStreak}
+                        - Trend Summary: ${roulResult.trendLabel}
+                        
+                        Formulate your tactical roulette recommendation.
+                        Your response MUST be formatted exactly as below (maximum 2 lines total, extremely concise, sharp and direct, no disclaimers):
+                        RECOMMENDATION: [BET RED / BET BLACK / BET EVEN / BET ODD / BET 1ST DOZEN / BET 2ND DOZEN / BET 3RD DOZEN / STANDBY]
+                        REASON: [Short 1-sentence explanation of why]
+                    """.trimIndent()
+                    GeminiClient.getStrategyAdvice(customPrompt, customKey)
                 }
                 else -> {
                     val recentList = repository.getRecentLimit(15)

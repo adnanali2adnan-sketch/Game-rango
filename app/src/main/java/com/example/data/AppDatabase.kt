@@ -7,14 +7,17 @@ import androidx.room.RoomDatabase
 
 import com.example.data.BaccaratRound
 import com.example.data.BaccaratDao
+import com.example.data.RouletteRound
+import com.example.data.RouletteDao
 
-@Database(entities = [CrashRound::class, DragonTigerRound::class, AndarBaharRound::class, SevenUpDownRound::class, BaccaratRound::class], version = 5, exportSchema = false)
+@Database(entities = [CrashRound::class, DragonTigerRound::class, AndarBaharRound::class, SevenUpDownRound::class, BaccaratRound::class, RouletteRound::class], version = 6, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun crashDao(): CrashDao
     abstract fun dragonTigerDao(): DragonTigerDao
     abstract fun andarBaharDao(): AndarBaharDao
     abstract fun sevenUpDownDao(): SevenUpDownDao
     abstract fun baccaratDao(): BaccaratDao
+    abstract fun rouletteDao(): RouletteDao
 
     companion object {
         @Volatile

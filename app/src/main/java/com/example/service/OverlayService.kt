@@ -124,6 +124,7 @@ class OverlayService : Service() {
     private lateinit var abDao: com.example.data.AndarBaharDao
     private lateinit var sevenDao: com.example.data.SevenUpDownDao
     private lateinit var baccaratDao: com.example.data.BaccaratDao
+    private lateinit var rouletteDao: com.example.data.RouletteDao
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     
     // HUD setup
@@ -137,6 +138,7 @@ class OverlayService : Service() {
     private var recentAbRoundsList = MutableStateFlow<List<com.example.data.AndarBaharRound>>(emptyList())
     private var recentSevenRoundsList = MutableStateFlow<List<com.example.data.SevenUpDownRound>>(emptyList())
     private var recentBaccaratRoundsList = MutableStateFlow<List<com.example.data.BaccaratRound>>(emptyList())
+    private var recentRouletteRoundsList = MutableStateFlow<List<com.example.data.RouletteRound>>(emptyList())
     
     // Floating View States
     private var isExpanded = MutableStateFlow(false)
@@ -220,6 +222,7 @@ class OverlayService : Service() {
         abDao = database.andarBaharDao()
         sevenDao = database.sevenUpDownDao()
         baccaratDao = database.baccaratDao()
+        rouletteDao = database.rouletteDao()
         
         // Listen to Room updates to keep our recent items list in sync!
         serviceScope.launch {
@@ -257,6 +260,13 @@ class OverlayService : Service() {
         serviceScope.launch {
             baccaratDao.getAllRounds().collect { list ->
                 recentBaccaratRoundsList.value = list.take(30)
+            }
+        }
+
+        // Listen to Roulette updates
+        serviceScope.launch {
+            rouletteDao.getAllRounds().collect { list ->
+                recentRouletteRoundsList.value = list.take(30)
             }
         }
 
@@ -616,6 +626,15 @@ class OverlayService : Service() {
             if (clean.contains("PLAYER") || clean == "P") return "PLAYER"
             if (clean.contains("BANKER") || clean == "B") return "BANKER"
             if (clean.contains("TIE") || clean == "T") return "TIE"
+            if (clean.contains("RED")) return "RED"
+            if (clean.contains("BLACK")) return "BLACK"
+            if (clean.contains("EVEN")) return "EVEN"
+            if (clean.contains("ODD")) return "ODD"
+            if (clean.contains("HIGH")) return "HIGH"
+            if (clean.contains("LOW")) return "LOW"
+            if (clean.contains("1ST")) return "1ST DOZEN"
+            if (clean.contains("2ND")) return "2ND DOZEN"
+            if (clean.contains("3RD")) return "3RD DOZEN"
         }
         return "UNCERTAIN"
     }
@@ -841,6 +860,81 @@ class OverlayService : Service() {
         }
     }
 
+    private fun addRouletteRoundResult(result: String) {
+        serviceScope.launch {
+            val localResult = com.example.data.RouletteAnalyzer.analyze(recentRouletteRoundsList.value)
+            val pred = localResult.suggestedBet
+            val hasGemini = geminiApiKey.value.isNotBlank() && geminiAiAdvice.value.isNotBlank()
+            val source = if (hasGemini) "AI" else "LOCAL"
+            val finalPred = if (source == "AI") {
+                val parsed = parseAiRecommendation(geminiAiAdvice.value)
+                if (parsed != "UNCERTAIN") parsed else pred
+            } else {
+                pred
+            }
+
+            val num = result.toIntOrNull()
+            val color = if (num != null) {
+                com.example.data.RouletteAnalyzer.getColorForNumber(num)
+            } else {
+                when {
+                    result.contains("RED", ignoreCase = true) -> "RED"
+                    result.contains("BLACK", ignoreCase = true) -> "BLACK"
+                    result.contains("GREEN", ignoreCase = true) || result == "0" -> "GREEN"
+                    else -> "RED"
+                }
+            }
+
+            val win: Boolean? = when {
+                finalPred.contains("RED") && color == "RED" -> true
+                finalPred.contains("BLACK") && color == "BLACK" -> true
+                finalPred.contains("EVEN") && num != null && num != 0 && num % 2 == 0 -> true
+                finalPred.contains("ODD") && num != null && num % 2 != 0 -> true
+                finalPred.contains("HIGH") && num != null && num in 19..36 -> true
+                finalPred.contains("LOW") && num != null && num in 1..18 -> true
+                finalPred.contains("1ST") && num != null && num in 1..12 -> true
+                finalPred.contains("2ND") && num != null && num in 13..24 -> true
+                finalPred.contains("3RD") && num != null && num in 25..36 -> true
+                finalPred == "STANDBY" || finalPred == "UNCERTAIN" -> null
+                else -> false
+            }
+
+            rouletteDao.insertRound(com.example.data.RouletteRound(
+                result = result,
+                number = num,
+                color = color,
+                prediction = finalPred,
+                predictionSource = source,
+                isWin = win
+            ))
+            captureLogs.value = "Result logged: $result (${if (win == true) "WIN" else if (win == false) "LOSS" else "WAIT"})"
+            triggerRealtimeGeminiPipeline(force = true)
+        }
+    }
+
+    private fun deleteLastRouletteRound() {
+        serviceScope.launch {
+            rouletteDao.deleteLastRound()
+            captureLogs.value = "Last round undone"
+            val remaining = rouletteDao.getRecentRounds(1)
+            if (remaining.isEmpty()) {
+                recentRouletteRoundsList.value = emptyList()
+                geminiAiAdvice.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
+            } else {
+                triggerRealtimeGeminiPipeline(force = true)
+            }
+        }
+    }
+
+    private fun clearAllRouletteRounds() {
+        serviceScope.launch {
+            rouletteDao.clearAll()
+            recentRouletteRoundsList.value = emptyList()
+            geminiAiAdvice.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
+            captureLogs.value = "All rounds cleared"
+        }
+    }
+
     data class LiveMetrics(
         val nextPrediction: Double,
         val cashout: Double,
@@ -1015,6 +1109,7 @@ class OverlayService : Service() {
         val recentAbList by recentAbRoundsList.collectAsState()
         val recentSevenList by recentSevenRoundsList.collectAsState()
         val recentBaccaratList by recentBaccaratRoundsList.collectAsState()
+        val recentRouletteList by recentRouletteRoundsList.collectAsState()
         
         val focusRequester = remember { FocusRequester() }
         val focusManager = LocalFocusManager.current
@@ -1169,6 +1264,8 @@ class OverlayService : Service() {
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         val emoji = when (currentGameVal) {
+                            "BACCARAT" -> "👑"
+                            "ROULETTE" -> "🎡"
                             "DRAGON_TIGER" -> "🐉"
                             "ANDAR_BAHAR" -> "🚪"
                             "SEVEN_UP_DOWN" -> "🎲"
@@ -1177,6 +1274,8 @@ class OverlayService : Service() {
                         Text(emoji, fontSize = 14.sp)
                         
                         val lastR = when (currentGameVal) {
+                            "BACCARAT" -> recentBaccaratList.firstOrNull()?.result ?: "P"
+                            "ROULETTE" -> recentRouletteList.firstOrNull()?.result ?: "RED"
                             "DRAGON_TIGER" -> recentDtList.firstOrNull()?.result ?: "D"
                             "ANDAR_BAHAR" -> recentAbList.firstOrNull()?.result ?: "A"
                             "SEVEN_UP_DOWN" -> recentSevenList.firstOrNull()?.result ?: "U"
@@ -1198,6 +1297,14 @@ class OverlayService : Service() {
                         )
 
                         val predChar = when (currentGameVal) {
+                            "BACCARAT" -> {
+                                val bacAns = com.example.data.BaccaratAnalyzer.analyze(recentBaccaratList)
+                                if (bacAns.predictedNext == "PLAYER" || bacAns.predictedNext == "BANKER" || bacAns.predictedNext == "TIE") bacAns.predictedNext.take(2) else "BC"
+                            }
+                            "ROULETTE" -> {
+                                val roulAns = com.example.data.RouletteAnalyzer.analyze(recentRouletteList)
+                                roulAns.suggestedBet.take(2)
+                            }
                             "DRAGON_TIGER" -> {
                                 val dtAns = DragonTigerAnalyzer.analyze(recentDtList)
                                 if (dtAns.predictedNext == "DRAGON" || dtAns.predictedNext == "TIGER") dtAns.predictedNext.take(2) else "DR"
@@ -1229,6 +1336,8 @@ class OverlayService : Service() {
                     ) {
                         Text(
                             text = when (currentGameVal) {
+                                "BACCARAT" -> "Last: ${recentBaccaratList.firstOrNull()?.result ?: "P"}"
+                                "ROULETTE" -> "Last: ${recentRouletteList.firstOrNull()?.result ?: "RED"}"
                                 "DRAGON_TIGER" -> "Last: ${recentDtList.firstOrNull()?.result ?: "D"}"
                                 "ANDAR_BAHAR" -> "Last: ${recentAbList.firstOrNull()?.result ?: "A"}"
                                 "SEVEN_UP_DOWN" -> "Last: ${recentSevenList.firstOrNull()?.result ?: "U"}"
@@ -1241,6 +1350,8 @@ class OverlayService : Service() {
                         )
                         Text(
                             text = when (currentGameVal) {
+                                "BACCARAT" -> com.example.data.BaccaratAnalyzer.analyze(recentBaccaratList).trendLabel.take(12)
+                                "ROULETTE" -> com.example.data.RouletteAnalyzer.analyze(recentRouletteList).trendLabel.take(12)
                                 "DRAGON_TIGER" -> DragonTigerAnalyzer.analyze(recentDtList).trendLabel.take(12)
                                 "ANDAR_BAHAR" -> com.example.data.AndarBaharAnalyzer.analyze(recentAbList).trendLabel.take(12)
                                 "SEVEN_UP_DOWN" -> com.example.data.SevenUpDownAnalyzer.analyze(recentSevenList).trendLabel.take(12)
@@ -1271,1108 +1382,58 @@ class OverlayService : Service() {
                     HorizontalDivider(color = RangoTealSky.copy(alpha = 0.5f), modifier = Modifier.padding(vertical = 1.dp))
 
                     if (currentGameVal == "BACCARAT") {
-                        val bacResult = com.example.data.BaccaratAnalyzer.analyze(recentBaccaratList)
-                        
-                        // Trend status banner
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(Color.Black.copy(alpha = 0.35f))
-                                .padding(vertical = 1.dp, horizontal = 3.dp),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            Text(
-                                text = "${bacResult.trendEmoji} ${bacResult.trendLabel}",
-                                color = when (bacResult.riskLevel) {
-                                    "HIGH RISK" -> RangoDangerRed
-                                    "MED RISK" -> RangoDesertGold
-                                    else -> RangoLimeGreen
-                                },
-                                fontSize = if (isLandscape) 7.5.sp else 8.5.sp,
-                                fontWeight = FontWeight.Black
-                            )
-                        }
-                        
-                        // Prediction Grid
-                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(1.dp)
-                            ) {
-                                BoxMetricItem(
-                                    title = "NEXT BET",
-                                    value = bacResult.suggestedBet,
-                                    bgColor = when {
-                                        bacResult.suggestedBet.contains("PLAYER") -> Color(0xFF1565C0)
-                                        bacResult.suggestedBet.contains("BANKER") -> Color(0xFFC62828)
-                                        else -> Color(0xFF37474F)
-                                    },
-                                    valueColor = Color.White,
-                                    modifier = Modifier.weight(1.3f)
-                                )
-                                BoxMetricItem(
-                                    title = "STREAK",
-                                    value = bacResult.currentStreak,
-                                    bgColor = Color(0xFF0D47A1),
-                                    valueColor = Color.White,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                            
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(1.dp)
-                            ) {
-                                BoxMetricItem(
-                                    title = "PLAYER%",
-                                    value = "${bacResult.playerPct}%",
-                                    bgColor = Color(0xFF0D47A1),
-                                    valueColor = Color.White,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                BoxMetricItem(
-                                    title = "BANKER%",
-                                    value = "${bacResult.bankerPct}%",
-                                    bgColor = Color(0xFFB71C1C),
-                                    valueColor = Color.White,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                BoxMetricItem(
-                                    title = "TIE%",
-                                    value = "${bacResult.tiePct}%",
-                                    bgColor = Color(0xFF4A148C),
-                                    valueColor = Color.White,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
-
-                        // derived roads
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(0.5.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(Color.Black.copy(alpha = 0.4f))
-                                .padding(vertical = 1.5.dp, horizontal = 3.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("BIG EYE BOY:", color = RangoTextMuted, fontSize = if (isLandscape) 5.5.sp else 7.sp, fontWeight = FontWeight.Bold)
-                                Text(
-                                    text = bacResult.bigEyeBoySignal,
-                                    color = if (bacResult.bigEyeBoySignal == "RED") RangoDangerRed else if (bacResult.bigEyeBoySignal == "BLUE") Color(0xFF1E88E5) else Color.Gray,
-                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("SMALL ROAD:", color = RangoTextMuted, fontSize = if (isLandscape) 5.5.sp else 7.sp, fontWeight = FontWeight.Bold)
-                                Text(
-                                    text = bacResult.smallRoadSignal,
-                                    color = if (bacResult.smallRoadSignal == "RED") RangoDangerRed else if (bacResult.smallRoadSignal == "BLUE") Color(0xFF1E88E5) else Color.Gray,
-                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("COCKROACH:", color = RangoTextMuted, fontSize = if (isLandscape) 5.5.sp else 7.sp, fontWeight = FontWeight.Bold)
-                                Text(
-                                    text = bacResult.cockroachRoadSignal,
-                                    color = if (bacResult.cockroachRoadSignal == "RED") RangoDangerRed else if (bacResult.cockroachRoadSignal == "BLUE") Color(0xFF1E88E5) else Color.Gray,
-                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-
-                        // Last rounds for Baccarat
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(1.dp),
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "LAST ROUNDS:",
-                                    color = RangoTextMuted,
-                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                if (recentBaccaratList.isEmpty()) {
-                                    Text(
-                                        text = "None",
-                                        color = Color.Gray,
-                                        fontSize = if (isLandscape) 6.sp else 7.sp,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                } else {
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        recentBaccaratList.take(8).forEach { round ->
-                                            val (letter, color) = when (round.result) {
-                                                "P" -> "P" to Color(0xFF1E88E5) // Blue
-                                                "B" -> "B" to RangoDangerRed   // Red
-                                                "T" -> "T" to Color(0xFF8E24AA) // Purple
-                                                else -> round.result to Color.White
-                                            }
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(if (isLandscape) 9.dp else 11.dp)
-                                                    .clip(RoundedCornerShape(1.5.dp))
-                                                    .background(color),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Text(
-                                                    text = letter,
-                                                    color = Color.White,
-                                                    fontSize = if (isLandscape) 5.5.sp else 7.sp,
-                                                    fontWeight = FontWeight.Black,
-                                                    fontFamily = FontFamily.Monospace
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 1.6.dp))
-                        
-                        Text(
-                            text = "QUICK ENTRY RESULT",
-                            color = RangoTextMuted,
-                            fontSize = if (isLandscape) 6.sp else 7.5.sp,
-                            fontWeight = FontWeight.Bold
+                        BaccaratHudView(
+                            recentBaccaratList = recentBaccaratList,
+                            isLandscape = isLandscape,
+                            onAddResult = { addBaccaratRoundResult(it) },
+                            onUndo = { deleteLastBaccaratRound() },
+                            onReset = { clearAllBaccaratRounds() }
                         )
-                        
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(3.dp)
-                        ) {
-                            // Player Button
-                            Box(
-                                modifier = Modifier
-                                    .weight(1.2f)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(Color(0xFF1E88E5))
-                                    .clickable { addBaccaratRoundResult("P") }
-                                    .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "🔵 PLAYER",
-                                    color = Color.White,
-                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                            }
-                            
-                            // Tie Button
-                            Box(
-                                modifier = Modifier
-                                    .weight(0.9f)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(Color(0xFF8E24AA))
-                                    .clickable { addBaccaratRoundResult("T") }
-                                    .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "TIE",
-                                    color = Color.White,
-                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                            }
-
-                            // Banker Button
-                            Box(
-                                modifier = Modifier
-                                    .weight(1.2f)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(RangoDangerRed)
-                                    .clickable { addBaccaratRoundResult("B") }
-                                    .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "🔴 BANKER",
-                                    color = Color.White,
-                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                            }
-                        }
-
-                        // Undo & Reset row
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
-                            horizontalArrangement = Arrangement.spacedBy(3.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(Color.DarkGray)
-                                    .clickable { deleteLastBaccaratRound() }
-                                    .padding(vertical = if (isLandscape) 4.dp else 5.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "↶ UNDO",
-                                    color = Color.White,
-                                    fontSize = if (isLandscape) 5.5.sp else 7.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(Color(0xFFC62828))
-                                    .clickable { clearAllBaccaratRounds() }
-                                    .padding(vertical = if (isLandscape) 4.dp else 5.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "🗑️ RESET",
-                                    color = Color.White,
-                                    fontSize = if (isLandscape) 5.5.sp else 7.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-
-                        HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 1.6.dp))
+                    } else if (currentGameVal == "ROULETTE") {
+                        RouletteHudView(
+                            recentRouletteList = recentRouletteList,
+                            isLandscape = isLandscape,
+                            onAddResult = { addRouletteRoundResult(it) },
+                            onUndo = { deleteLastRouletteRound() },
+                            onReset = { clearAllRouletteRounds() }
+                        )
                     } else if (currentGameVal == "DRAGON_TIGER") {
-                        val dtResult = DragonTigerAnalyzer.analyze(recentDtList)
-                        
-                        // Trend status banner
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(Color.Black.copy(alpha = 0.35f))
-                                .padding(vertical = 1.dp, horizontal = 3.dp),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            Text(
-                                text = "${dtResult.trendEmoji} ${dtResult.trendLabel}",
-                                color = when (dtResult.riskLevel) {
-                                    "HIGH RISK" -> RangoDangerRed
-                                    "MED RISK" -> RangoDesertGold
-                                    else -> RangoLimeGreen
-                                },
-                                fontSize = if (isLandscape) 7.5.sp else 8.5.sp,
-                                fontWeight = FontWeight.Black
-                            )
-                        }
-                        
-                        // Prediction Grid or Row
-                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(1.dp)
-                            ) {
-                                BoxMetricItem(
-                                    title = "NEXT BET",
-                                    value = dtResult.suggestedBet,
-                                    bgColor = when {
-                                        dtResult.suggestedBet.contains("DRAGON") -> Color(0xFF1B5E20)
-                                        dtResult.suggestedBet.contains("TIGER") -> Color(0xFFBF360C)
-                                        else -> Color(0xFF37474F)
-                                    },
-                                    valueColor = Color.White,
-                                    modifier = Modifier.weight(1.3f)
-                                )
-                                BoxMetricItem(
-                                    title = "STREAK",
-                                    value = dtResult.currentStreak,
-                                    bgColor = Color(0xFF1565C0),
-                                    valueColor = Color.White,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                            
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(1.dp)
-                            ) {
-                                BoxMetricItem(
-                                    title = "DRAGON%",
-                                    value = "${dtResult.dragonPct}%",
-                                    bgColor = Color(0xFF2E7D32),
-                                    valueColor = Color.White,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                BoxMetricItem(
-                                    title = "TIGER%",
-                                    value = "${dtResult.tigerPct}%",
-                                    bgColor = Color(0xFFC62828),
-                                    valueColor = Color.White,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                BoxMetricItem(
-                                    title = "TIE%",
-                                    value = "${dtResult.tiePct}%",
-                                    bgColor = Color(0xFF6A1B9A),
-                                    valueColor = Color.White,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
-
-                        // 🎰 BACCARAT ROADS PANEL (NEXT SIDE ONLY to keep HUD ultra-compact)
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(0.5.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(Color.Black.copy(alpha = 0.4f))
-                                .padding(vertical = 1.5.dp, horizontal = 3.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("NEXT SIDE:", color = RangoTextMuted, fontSize = if (isLandscape) 6.sp else 7.5.sp, fontWeight = FontWeight.Bold)
-                                Text(
-                                    text = if (dtResult.predictedNext == "UNCERTAIN") "STANDBY" else dtResult.predictedNext,
-                                    color = if (dtResult.predictedNext == "DRAGON") Color(0xFF1E88E5) else if (dtResult.predictedNext == "TIGER") RangoDangerRed else Color.Gray,
-                                    fontSize = if (isLandscape) 6.5.sp else 8.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                            }
-                        }
-
-                        // LAST ROUNDS Row for Dragon Tiger HUD
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(1.dp),
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "LAST ROUNDS:",
-                                    color = RangoTextMuted,
-                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                if (recentDtList.isEmpty()) {
-                                    Text(
-                                        text = "None",
-                                        color = Color.Gray,
-                                        fontSize = if (isLandscape) 6.sp else 7.sp,
-                                        fontFamily = FontFamily.Monospace
-                                    )
+                        DragonTigerHudView(
+                            recentDtList = recentDtList,
+                            isLandscape = isLandscape,
+                            isScanning = isScanning,
+                            onAddResult = { addDragonTigerRoundResult(it) },
+                            onUndo = { deleteLastDragonTigerRound() },
+                            onReset = { clearAllDragonTigerRounds() },
+                            onToggleOcr = {
+                                if (isScanning) {
+                                    stopOcrScanning()
                                 } else {
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        recentDtList.take(8).forEach { round ->
-                                            val (letter, color) = when (round.result) {
-                                                "D" -> "D" to Color(0xFF1E88E5) // Blue
-                                                "T" -> "T" to RangoDangerRed   // Red
-                                                "X", "TIE", "P" -> "P" to Color(0xFF8E24AA) // Purple
-                                                else -> round.result to Color.White
-                                            }
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(if (isLandscape) 9.dp else 11.dp)
-                                                    .clip(RoundedCornerShape(1.5.dp))
-                                                    .background(color),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Text(
-                                                    text = letter,
-                                                    color = Color.White,
-                                                    fontSize = if (isLandscape) 5.5.sp else 7.sp,
-                                                    fontWeight = FontWeight.Black,
-                                                    fontFamily = FontFamily.Monospace
-                                                )
-                                            }
-                                        }
+                                    captureLogs.value = "Launching Dashboard for Screen Auth..."
+                                    val launchIntent = Intent(this@OverlayService, MainActivity::class.java).apply {
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                                        putExtra("EXTRA_START_OCR_IMMEDIATELY", true)
                                     }
+                                    startActivity(launchIntent)
                                 }
                             }
-                        }
-
-                        HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 1.6.dp))
-                        
-                        // Manual entry buttons
-                        Text(
-                            text = "QUICK ENTRY RESULT",
-                            color = RangoTextMuted,
-                            fontSize = if (isLandscape) 6.sp else 7.5.sp,
-                            fontWeight = FontWeight.Bold
                         )
-                        
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(3.dp)
-                        ) {
-                            // Custom Dragon Button
-                            Box(
-                                modifier = Modifier
-                                    .weight(1.2f)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(RangoLimeGreen)
-                                    .clickable { addDragonTigerRoundResult("D") }
-                                    .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "🐉 DRAGON",
-                                    color = Color.Black,
-                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                            }
-                            
-                            // Custom Tie Button
-                            Box(
-                                modifier = Modifier
-                                    .weight(0.9f)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(Color(0xFF8E24AA))
-                                    .clickable { addDragonTigerRoundResult("X") }
-                                    .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "TIE",
-                                    color = Color.White,
-                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                            }
-
-                            // Custom Tiger Button
-                            Box(
-                                modifier = Modifier
-                                    .weight(1.2f)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(RangoDangerRed)
-                                    .clickable { addDragonTigerRoundResult("T") }
-                                    .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "🐯 TIGER",
-                                    color = Color.White,
-                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                            }
-                        }
-
-                        // Undo & Reset controls row
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
-                            horizontalArrangement = Arrangement.spacedBy(3.dp)
-                        ) {
-                            // Custom Undo Button
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(Color.DarkGray)
-                                    .clickable { deleteLastDragonTigerRound() }
-                                    .padding(vertical = if (isLandscape) 4.dp else 5.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "↶ UNDO",
-                                    color = Color.White,
-                                    fontSize = if (isLandscape) 5.5.sp else 7.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-
-                            // Custom Reset Button
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(Color(0xFFC62828))
-                                    .clickable { clearAllDragonTigerRounds() }
-                                    .padding(vertical = if (isLandscape) 4.dp else 5.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "🗑️ RESET",
-                                    color = Color.White,
-                                    fontSize = if (isLandscape) 5.5.sp else 7.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-
-                        HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 1.6.dp))
-
-                        // OCR/Start buttons for Dragon Tiger
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(if (isScanning) RangoDangerRed else RangoLimeGreen)
-                                .clickable {
-                                    if (isScanning) {
-                                        stopOcrScanning()
-                                    } else {
-                                        captureLogs.value = "Launching Dashboard for Screen Auth..."
-                                        val launchIntent = Intent(this@OverlayService, MainActivity::class.java).apply {
-                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                                            putExtra("EXTRA_START_OCR_IMMEDIATELY", true)
-                                         }
-                                         startActivity(launchIntent)
-                                    }
-                                }
-                                .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = if (isScanning) "STOP OCR" else "AUTO OCR",
-                                color = Color.Black,
-                                fontSize = if (isLandscape) 6.sp else 7.5.sp,
-                                fontWeight = FontWeight.Black
-                            )
-                        }
                     } else if (currentGameVal == "ANDAR_BAHAR") {
-                        val abResult = com.example.data.AndarBaharAnalyzer.analyze(recentAbList)
-                        
-                        // Trend status banner
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(Color.Black.copy(alpha = 0.35f))
-                                .padding(vertical = 1.dp, horizontal = 3.dp),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            Text(
-                                text = "${abResult.trendEmoji} ${abResult.trendLabel}",
-                                color = when (abResult.riskLevel) {
-                                    "HIGH RISK" -> RangoDangerRed
-                                    "MED RISK" -> RangoDesertGold
-                                    else -> RangoLimeGreen
-                                },
-                                fontSize = if (isLandscape) 7.5.sp else 8.5.sp,
-                                fontWeight = FontWeight.Black
-                            )
-                        }
-                        
-                        // Prediction Grid
-                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(1.dp)
-                            ) {
-                                BoxMetricItem(
-                                    title = "NEXT BET",
-                                    value = abResult.suggestedBet,
-                                    bgColor = when {
-                                        abResult.suggestedBet.contains("ANDAR") -> Color(0xFF00796B)
-                                        abResult.suggestedBet.contains("BAHAR") -> Color(0xFFD84315)
-                                        else -> Color(0xFF37474F)
-                                    },
-                                    valueColor = Color.White,
-                                    modifier = Modifier.weight(1.3f)
-                                )
-                                BoxMetricItem(
-                                    title = "STREAK",
-                                    value = abResult.currentStreak,
-                                    bgColor = Color(0xFF0D47A1),
-                                    valueColor = Color.White,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                            
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(1.dp)
-                            ) {
-                                BoxMetricItem(
-                                    title = "ANDAR%",
-                                    value = "${abResult.andarPct}%",
-                                    bgColor = Color(0xFF004D40),
-                                    valueColor = Color.White,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                BoxMetricItem(
-                                    title = "BAHAR%",
-                                    value = "${abResult.baharPct}%",
-                                    bgColor = Color(0xFFBF360C),
-                                    valueColor = Color.White,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
-
-                        // Local Advice Panel
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(0.5.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(Color.Black.copy(alpha = 0.4f))
-                                .padding(vertical = 1.5.dp, horizontal = 3.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("PREDICTED:", color = RangoTextMuted, fontSize = if (isLandscape) 6.sp else 7.5.sp, fontWeight = FontWeight.Bold)
-                                Text(
-                                    text = abResult.predictedNext,
-                                    color = if (abResult.predictedNext == "ANDAR") Color(0xFF4DB6AC) else if (abResult.predictedNext == "BAHAR") Color(0xFFFF8A65) else Color.Gray,
-                                    fontSize = if (isLandscape) 6.5.sp else 8.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                            }
-                        }
-
-                        // LAST ROUNDS Row
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(1.dp),
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "LAST ROUNDS:",
-                                    color = RangoTextMuted,
-                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                if (recentAbList.isEmpty()) {
-                                    Text(
-                                        text = "None",
-                                        color = Color.Gray,
-                                        fontSize = if (isLandscape) 6.sp else 7.sp,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                } else {
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        recentAbList.take(8).forEach { round ->
-                                            val (letter, color) = when (round.result) {
-                                                "A" -> "A" to Color(0xFF00796B)
-                                                "B" -> "B" to Color(0xFFD84315)
-                                                else -> round.result to Color.White
-                                            }
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(if (isLandscape) 9.dp else 11.dp)
-                                                    .clip(RoundedCornerShape(1.5.dp))
-                                                    .background(color),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Text(
-                                                    text = letter,
-                                                    color = Color.White,
-                                                    fontSize = if (isLandscape) 5.5.sp else 7.sp,
-                                                    fontWeight = FontWeight.Black,
-                                                    fontFamily = FontFamily.Monospace
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 1.6.dp))
-                        
-                        // Manual entry buttons
-                        Text(
-                            text = "QUICK ENTRY RESULT",
-                            color = RangoTextMuted,
-                            fontSize = if (isLandscape) 6.sp else 7.5.sp,
-                            fontWeight = FontWeight.Bold
+                        AndarBaharHudView(
+                            recentAbList = recentAbList,
+                            isLandscape = isLandscape,
+                            onAddResult = { addAndarBaharRoundResult(it) },
+                            onUndo = { deleteLastAndarBaharRound() },
+                            onReset = { clearAllAndarBaharRounds() }
                         )
-                        
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(3.dp)
-                        ) {
-                            // Andar Button
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(RangoTealSky)
-                                    .clickable { addAndarBaharRoundResult("A") }
-                                    .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "🚪 ANDAR",
-                                    color = Color.Black,
-                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                            }
-                            
-                            // Bahar Button
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(RangoDangerRed)
-                                    .clickable { addAndarBaharRoundResult("B") }
-                                    .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "🌌 BAHAR",
-                                    color = Color.White,
-                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                            }
-                        }
-
-                        // Undo & Reset controls row
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
-                            horizontalArrangement = Arrangement.spacedBy(3.dp)
-                        ) {
-                            // Custom Undo Button
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(Color.DarkGray)
-                                    .clickable { deleteLastAndarBaharRound() }
-                                    .padding(vertical = if (isLandscape) 4.dp else 5.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "↶ UNDO",
-                                    color = Color.White,
-                                    fontSize = if (isLandscape) 5.5.sp else 7.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-
-                            // Custom Reset Button
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(Color(0xFFC62828))
-                                    .clickable { clearAllAndarBaharRounds() }
-                                    .padding(vertical = if (isLandscape) 4.dp else 5.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "🗑️ RESET",
-                                    color = Color.White,
-                                    fontSize = if (isLandscape) 5.5.sp else 7.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
                     } else if (currentGameVal == "SEVEN_UP_DOWN") {
-                        val sevenResult = com.example.data.SevenUpDownAnalyzer.analyze(recentSevenList)
-                        
-                        // Trend status banner
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(Color.Black.copy(alpha = 0.35f))
-                                .padding(vertical = 1.dp, horizontal = 3.dp),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            Text(
-                                text = "${sevenResult.trendEmoji} ${sevenResult.trendLabel}",
-                                color = when (sevenResult.riskLevel) {
-                                    "HIGH RISK" -> RangoDangerRed
-                                    "MED RISK" -> RangoDesertGold
-                                    else -> RangoLimeGreen
-                                },
-                                fontSize = if (isLandscape) 7.5.sp else 8.5.sp,
-                                fontWeight = FontWeight.Black
-                            )
-                        }
-                        
-                        // Prediction Grid
-                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(1.dp)
-                            ) {
-                                BoxMetricItem(
-                                    title = "NEXT BET",
-                                    value = sevenResult.suggestedBet,
-                                    bgColor = when {
-                                        sevenResult.suggestedBet.contains("UP") -> Color(0xFF2E7D32)
-                                        sevenResult.suggestedBet.contains("DOWN") -> Color(0xFFC62828)
-                                        sevenResult.suggestedBet.contains("SEVEN") -> Color(0xFFEF6C00)
-                                        else -> Color(0xFF37474F)
-                                    },
-                                    valueColor = Color.White,
-                                    modifier = Modifier.weight(1.3f)
-                                )
-                                BoxMetricItem(
-                                    title = "STREAK",
-                                    value = sevenResult.currentStreak,
-                                    bgColor = Color(0xFF283593),
-                                    valueColor = Color.White,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                            
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(1.dp)
-                            ) {
-                                BoxMetricItem(
-                                    title = "UP %",
-                                    value = "${sevenResult.upPct}%",
-                                    bgColor = Color(0xFF1B5E20),
-                                    valueColor = Color.White,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                BoxMetricItem(
-                                    title = "DOWN %",
-                                    value = "${sevenResult.downPct}%",
-                                    bgColor = Color(0xFFB71C1C),
-                                    valueColor = Color.White,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                BoxMetricItem(
-                                    title = "7 %",
-                                    value = "${sevenResult.sevenPct}%",
-                                    bgColor = Color(0xFFE65100),
-                                    valueColor = Color.White,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
-
-                        // Local Advice Panel
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(0.5.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(Color.Black.copy(alpha = 0.4f))
-                                .padding(vertical = 1.5.dp, horizontal = 3.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("PREDICTED:", color = RangoTextMuted, fontSize = if (isLandscape) 6.sp else 7.5.sp, fontWeight = FontWeight.Bold)
-                                Text(
-                                    text = sevenResult.predictedNext,
-                                    color = if (sevenResult.predictedNext == "UP") Color(0xFF81C784) else if (sevenResult.predictedNext == "DOWN") Color(0xFFE57373) else if (sevenResult.predictedNext == "7" || sevenResult.predictedNext == "SEVEN") Color(0xFFFFB74D) else Color.Gray,
-                                    fontSize = if (isLandscape) 6.5.sp else 8.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                            }
-                        }
-
-                        // LAST ROUNDS Row
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(1.dp),
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "LAST ROUNDS:",
-                                    color = RangoTextMuted,
-                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                if (recentSevenList.isEmpty()) {
-                                    Text(
-                                        text = "None",
-                                        color = Color.Gray,
-                                        fontSize = if (isLandscape) 6.sp else 7.sp,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                } else {
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        recentSevenList.take(8).forEach { round ->
-                                            val (letter, color) = when (round.result) {
-                                                "U" -> "U" to Color(0xFF2E7D32)
-                                                "D" -> "D" to Color(0xFFC62828)
-                                                "7" -> "7" to Color(0xFFEF6C00)
-                                                else -> round.result to Color.White
-                                            }
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(if (isLandscape) 9.dp else 11.dp)
-                                                    .clip(RoundedCornerShape(1.5.dp))
-                                                    .background(color),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Text(
-                                                    text = letter,
-                                                    color = Color.White,
-                                                    fontSize = if (isLandscape) 5.5.sp else 7.sp,
-                                                    fontWeight = FontWeight.Black,
-                                                    fontFamily = FontFamily.Monospace
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        HorizontalDivider(color = RangoTealSky.copy(alpha = 0.3f), modifier = Modifier.padding(vertical = 1.6.dp))
-                        
-                        // Manual entry buttons
-                        Text(
-                            text = "QUICK ENTRY RESULT",
-                            color = RangoTextMuted,
-                            fontSize = if (isLandscape) 6.sp else 7.5.sp,
-                            fontWeight = FontWeight.Bold
+                        SevenUpDownHudView(
+                            recentSevenList = recentSevenList,
+                            isLandscape = isLandscape,
+                            onAddResult = { addSevenUpDownRoundResult(it) },
+                            onUndo = { deleteLastSevenUpDownRound() },
+                            onReset = { clearAllSevenUpDownRounds() }
                         )
-                        
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(3.dp)
-                        ) {
-                            // UP Button
-                            Box(
-                                modifier = Modifier
-                                    .weight(1.2f)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(RangoLimeGreen)
-                                    .clickable { addSevenUpDownRoundResult("U") }
-                                    .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "📈 7 UP",
-                                    color = Color.Black,
-                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                            }
-                            
-                            // 7 Button
-                            Box(
-                                modifier = Modifier
-                                    .weight(0.9f)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(Color(0xFFEF6C00))
-                                    .clickable { addSevenUpDownRoundResult("7") }
-                                    .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "7",
-                                    color = Color.White,
-                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                            }
-
-                            // DOWN Button
-                            Box(
-                                modifier = Modifier
-                                    .weight(1.2f)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(RangoDangerRed)
-                                    .clickable { addSevenUpDownRoundResult("D") }
-                                    .padding(vertical = if (isLandscape) 4.5.dp else 6.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "📉 7 DN",
-                                    color = Color.White,
-                                    fontSize = if (isLandscape) 6.sp else 7.5.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                            }
-                        }
-
-                        // Undo & Reset controls row
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
-                            horizontalArrangement = Arrangement.spacedBy(3.dp)
-                        ) {
-                            // Custom Undo Button
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(Color.DarkGray)
-                                    .clickable { deleteLastSevenUpDownRound() }
-                                    .padding(vertical = if (isLandscape) 4.dp else 5.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "↶ UNDO",
-                                    color = Color.White,
-                                    fontSize = if (isLandscape) 5.5.sp else 7.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-
-                            // Custom Reset Button
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(Color(0xFFC62828))
-                                    .clickable { clearAllSevenUpDownRounds() }
-                                    .padding(vertical = if (isLandscape) 4.dp else 5.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "🗑️ RESET",
-                                    color = Color.White,
-                                    fontSize = if (isLandscape) 5.5.sp else 7.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
                     } else {
                         // Heading trend status banner dynamically styled
                         val headingText = when {
@@ -3363,6 +2424,38 @@ class OverlayService : Service() {
                         val dataStr = recentList.take(20).joinToString(", ") { it.result }
                         val sevenResult = com.example.data.SevenUpDownAnalyzer.analyze(recentList)
                         com.example.api.GeminiClient.analyzeGame(key, "SEVEN_UP_DOWN", dataStr, currentBalance, sevenResult.trendLabel)
+                    }
+                    "ROULETTE" -> {
+                        val recentList = recentRouletteRoundsList.value
+                        if (recentList.isEmpty()) {
+                            geminiAiAdvice.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
+                            isGeminiLoading.value = false
+                            return@launch
+                        }
+                        val roulResult = com.example.data.RouletteAnalyzer.analyze(recentList)
+                        val dataStr = recentList.take(20).joinToString(", ") { "${it.result}(${it.color})" }
+                        val customPrompt = """
+                            You are an elite, professional Casino Roulette Game Analyzer.
+                            
+                            CURRENT SESSION DATA:
+                            - Current Game Mode: ROULETTE
+                            - Wallet Balance: PKR $currentBalance
+                            - Last 20 Spins (Newest first): $dataStr
+                            
+                            ROULETTE STATISTICAL MATRIX:
+                            - Red / Black / Green: ${roulResult.redPct}% RED / ${roulResult.blackPct}% BLACK / ${roulResult.greenPct}% GREEN
+                            - Even / Odd: ${roulResult.evenPct}% EVEN / ${roulResult.oddPct}% ODD
+                            - High / Low: ${roulResult.highPct}% HIGH / ${roulResult.lowPct}% LOW
+                            - Dozens: 1st Dozen = ${roulResult.dozen1Pct}%, 2nd Dozen = ${roulResult.dozen2Pct}%, 3rd Dozen = ${roulResult.dozen3Pct}%
+                            - Current Streak: ${roulResult.currentStreak}
+                            - Trend Summary: ${roulResult.trendLabel}
+                            
+                            Formulate your tactical roulette recommendation.
+                            Your response MUST be formatted exactly as below (maximum 2 lines total, extremely concise, sharp and direct, no disclaimers):
+                            RECOMMENDATION: [BET RED / BET BLACK / BET EVEN / BET ODD / BET 1ST DOZEN / BET 2ND DOZEN / BET 3RD DOZEN / STANDBY]
+                            REASON: [Short 1-sentence explanation of why]
+                        """.trimIndent()
+                        com.example.api.GeminiClient.getStrategyAdvice(customPrompt, key)
                     }
                     else -> {
                         val recentList = recentMultipliersList.value.take(10)
