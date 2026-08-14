@@ -62,7 +62,24 @@ interface GeminiApiService {
 
 object GeminiClient {
     private const val BASE_URL = "https://generativelanguage.googleapis.com/"
-    const val SELECTED_MODEL = "models/gemini-2.5-flash"
+
+    // Preferred models with high daily quota on Google AI Studio Free Tier
+    val SUPPORTED_MODELS = listOf(
+        "AUTO" to "Auto Smart Fallback (High Quota 500 RPD)",
+        "gemini-3.5-flash-lite" to "Gemini 3.5 Flash Lite (500 RPD)",
+        "gemini-3.1-flash-lite" to "Gemini 3.1 Flash Lite (500 RPD)",
+        "gemini-2.5-flash-lite" to "Gemini 2.5 Flash Lite (20 RPD)",
+        "gemini-2.5-flash" to "Gemini 2.5 Flash (20 RPD)",
+        "gemini-2.0-flash" to "Gemini 2.0 Flash",
+        "gemini-1.5-flash" to "Gemini 1.5 Flash"
+    )
+
+    private val _selectedModelPref = MutableStateFlow("AUTO")
+    val selectedModelPref: StateFlow<String> = _selectedModelPref.asStateFlow()
+
+    fun setSelectedModel(model: String) {
+        _selectedModelPref.value = model
+    }
 
     private val _latestReport = MutableStateFlow(GeminiDebugReport())
     val latestReport: StateFlow<GeminiDebugReport> = _latestReport.asStateFlow()
@@ -71,7 +88,7 @@ object GeminiClient {
     
     // Throttling & Deduplication states
     private var lastRequestTime = 0L
-    private const val THROTTLE_MS = 1_000L // Reduced to 1 second for ultra-responsive testing
+    private const val THROTTLE_MS = 1_000L // 1 second responsive throttle
     private var lastPromptText: String? = null
 
     private val moshi: Moshi = Moshi.Builder()
@@ -79,9 +96,9 @@ object GeminiClient {
         .build()
 
     private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(60, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .writeTimeout(60, TimeUnit.SECONDS)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
     private val retrofit: Retrofit = Retrofit.Builder()
@@ -102,9 +119,25 @@ object GeminiClient {
         }
     }
 
+    private fun getCandidateModels(): List<String> {
+        val userPref = _selectedModelPref.value
+        return if (userPref != "AUTO" && userPref.isNotBlank()) {
+            listOf(userPref, "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash").distinct()
+        } else {
+            listOf(
+                "gemini-3.5-flash-lite",
+                "gemini-3.1-flash-lite",
+                "gemini-2.5-flash-lite",
+                "gemini-2.5-flash",
+                "gemini-2.0-flash",
+                "gemini-1.5-flash"
+            )
+        }
+    }
+
     /**
      * Submits a structured prompt to Gemini model and gets its response text.
-     * Uses sequential fallback for model: gemini-3.5-flash -> gemini-2.5-flash -> gemini-1.5-flash.
+     * Uses automatic fallback on rate limit / quota exhaustion across high-quota models.
      */
     suspend fun getStrategyAdvice(promptText: String, customApiKey: String? = null): String {
         val apiKey = if (!customApiKey.isNullOrBlank()) customApiKey else BuildConfig.GEMINI_API_KEY
@@ -130,7 +163,7 @@ object GeminiClient {
                 keyLoadedTruncated = "N/A"
             )
             _latestReport.value = report
-            return "⚠️ Gemini API Key is missing. Please enter your Gemini API Key in the dashboard to unlock real-time tactical advice! (API key ka hona lazmi hai!)"
+            return "⚠️ Gemini API Key is missing. Please enter your Gemini API Key in the dashboard to unlock real-time tactical advice!"
         }
 
         val now = System.currentTimeMillis()
@@ -141,7 +174,7 @@ object GeminiClient {
             return "⚠️ Duplicate request ignored."
         }
 
-        // Strict throttle (unless direct manual test is triggered)
+        // Strict throttle
         if (elapsed < THROTTLE_MS) {
             val waitSecs = ((THROTTLE_MS - elapsed) / 1000) + 1
             val report = GeminiDebugReport(
@@ -151,7 +184,7 @@ object GeminiClient {
                 httpCode = "N/A",
                 responseBody = "N/A",
                 errorMessage = "Throttled: Please wait $waitSecs seconds.",
-                modelNameUsed = SELECTED_MODEL,
+                modelNameUsed = getCandidateModels().firstOrNull() ?: "AUTO",
                 totalRequestsCount = totalRequestsCount.get(),
                 finalFailureReason = "Local App Rate Limit",
                 endpointUsed = "N/A",
@@ -162,13 +195,13 @@ object GeminiClient {
                 rateLimitSource = "APP"
             )
             _latestReport.value = report
-            return "⚠️ Local App Rate Limit: Wait ${waitSecs}s before next call to protect your API quota. (Double-click ya automatic entry control!)"
+            return "⚠️ Local App Rate Limit: Wait ${waitSecs}s before next call to protect your API quota."
         }
 
         lastRequestTime = now
         lastPromptText = promptText
 
-        val modelsToTry = listOf(SELECTED_MODEL)
+        val modelsToTry = getCandidateModels()
         var lastErrorAdvice = ""
         
         val isOauthToken = apiKey.startsWith("ya29.") || apiKey.startsWith("Bearer ")
@@ -186,12 +219,9 @@ object GeminiClient {
             "Content-Type: application/json, x-goog-api-key: $truncatedKey, key: $truncatedKey"
         }
         
-        for (model in modelsToTry) {
-            val urlPath = if (model.startsWith("models/")) {
-                "v1beta/$model:generateContent"
-            } else {
-                "v1beta/models/$model:generateContent"
-            }
+        for ((index, model) in modelsToTry.withIndex()) {
+            val cleanModel = model.removePrefix("models/")
+            val urlPath = "v1beta/models/$cleanModel:generateContent"
             val fullUrl = "$BASE_URL$urlPath"
             val count = totalRequestsCount.incrementAndGet()
 
@@ -223,6 +253,7 @@ object GeminiClient {
                     val rawBody = response.body()?.string() ?: ""
                     val text = extractTextFromJson(rawBody)
                     if (text != null) {
+                        val modelLabel = if (index > 0) "$cleanModel (Fallback from ${modelsToTry.first()})" else cleanModel
                         val report = GeminiDebugReport(
                             savedKeyLength = keyLength,
                             keyLoadedSuccessfully = keyLoaded,
@@ -230,7 +261,7 @@ object GeminiClient {
                             httpCode = code.toString(),
                             responseBody = rawBody,
                             errorMessage = "None (Success)",
-                            modelNameUsed = model,
+                            modelNameUsed = modelLabel,
                             totalRequestsCount = count,
                             finalFailureReason = "None (Success)",
                             endpointUsed = fullUrl,
@@ -242,7 +273,6 @@ object GeminiClient {
                         _latestReport.value = report
                         return text
                     } else {
-                        // Response body is successful but could not parse text candidates
                         val report = GeminiDebugReport(
                             savedKeyLength = keyLength,
                             keyLoadedSuccessfully = keyLoaded,
@@ -250,7 +280,7 @@ object GeminiClient {
                             httpCode = code.toString(),
                             responseBody = rawBody,
                             errorMessage = "Response has no text candidates",
-                            modelNameUsed = model,
+                            modelNameUsed = cleanModel,
                             totalRequestsCount = count,
                             finalFailureReason = "Unparseable response structure",
                             endpointUsed = fullUrl,
@@ -260,18 +290,18 @@ object GeminiClient {
                             keyLoadedTruncated = truncatedKey
                         )
                         _latestReport.value = report
-                        lastErrorAdvice = "⚠️ Unexpected empty or invalid JSON schema."
+                        lastErrorAdvice = "⚠️ Unexpected empty response format."
                     }
                 } else {
                     val errorBody = response.errorBody()?.string() ?: ""
                     val mappedReason = when {
                         code == 400 && (errorBody.contains("API_KEY_INVALID") || errorBody.contains("not valid")) -> "Invalid API Key"
-                        code == 403 -> "Invalid API Key"
-                        code == 429 && (errorBody.contains("quota") || errorBody.contains("Quota") || errorBody.contains("exhausted")) -> "Quota Exceeded"
-                        code == 429 -> "Rate Limited"
-                        code == 404 -> "Model Not Found"
-                        code == 503 -> "Service Unavailable"
-                        else -> "HTTP $code Error"
+                        code == 403 -> "Invalid API Key / Access Denied"
+                        code == 429 && (errorBody.contains("quota") || errorBody.contains("Quota") || errorBody.contains("exhausted")) -> "Quota Exceeded on $cleanModel"
+                        code == 429 -> "Rate Limited on $cleanModel"
+                        code == 404 -> "Model Not Found ($cleanModel)"
+                        code == 503 -> "Service Unavailable ($cleanModel)"
+                        else -> "HTTP $code Error ($cleanModel)"
                     }
 
                     val report = GeminiDebugReport(
@@ -281,7 +311,7 @@ object GeminiClient {
                         httpCode = code.toString(),
                         responseBody = errorBody,
                         errorMessage = mappedReason,
-                        modelNameUsed = model,
+                        modelNameUsed = cleanModel,
                         totalRequestsCount = count,
                         finalFailureReason = mappedReason,
                         endpointUsed = fullUrl,
@@ -293,12 +323,13 @@ object GeminiClient {
                     )
                     _latestReport.value = report
                     
-                    // Stop trying other models if it's an API Key or billing/quota error
-                    if (mappedReason == "Invalid API Key" || mappedReason == "Quota Exceeded" || mappedReason == "Rate Limited") {
-                        return "⚠️ API Key/Quota issue: $mappedReason"
+                    // If the API Key itself is invalid, do not spam other models
+                    if (mappedReason.contains("Invalid API Key")) {
+                        return "⚠️ Invalid API Key. Please check your Gemini API key in the dashboard."
                     }
                     
-                    lastErrorAdvice = "⚠️ API Server returned $code: $mappedReason"
+                    // If it's 429 quota exhaustion or 404 model not found, try NEXT model in chain!
+                    lastErrorAdvice = "⚠️ Quota limit on $cleanModel. Falling back to alternative model..."
                 }
             } catch (e: Exception) {
                 val isNetwork = e is java.io.IOException || e is java.net.ConnectException || e is java.net.UnknownHostException || e is java.net.SocketTimeoutException
@@ -311,7 +342,7 @@ object GeminiClient {
                     httpCode = "N/A",
                     responseBody = e.stackTraceToString().take(500),
                     errorMessage = mappedReason,
-                    modelNameUsed = model,
+                    modelNameUsed = cleanModel,
                     totalRequestsCount = count,
                     finalFailureReason = mappedReason,
                     endpointUsed = fullUrl,
@@ -321,10 +352,10 @@ object GeminiClient {
                     keyLoadedTruncated = truncatedKey
                 )
                 _latestReport.value = report
-                lastErrorAdvice = "⚠️ Connection issue: $mappedReason"
+                lastErrorAdvice = "⚠️ Connection issue on $cleanModel: $mappedReason"
             }
         }
-        return lastErrorAdvice
+        return lastErrorAdvice.ifBlank { "⚠️ All Gemini models reached quota limit. Set up billing or wait for quota reset." }
     }
 
     /**
@@ -377,7 +408,7 @@ object GeminiClient {
             return report
         }
 
-        val modelsToTry = listOf(SELECTED_MODEL)
+        val modelsToTry = getCandidateModels()
         var finalReport = GeminiDebugReport()
 
         val isOauthToken = trimmedKey.startsWith("ya29.") || trimmedKey.startsWith("Bearer ")
@@ -395,12 +426,9 @@ object GeminiClient {
             "Content-Type: application/json, x-goog-api-key: $truncatedKey, key: $truncatedKey"
         }
 
-        for (model in modelsToTry) {
-            val urlPath = if (model.startsWith("models/")) {
-                "v1beta/$model:generateContent"
-            } else {
-                "v1beta/models/$model:generateContent"
-            }
+        for ((index, model) in modelsToTry.withIndex()) {
+            val cleanModel = model.removePrefix("models/")
+            val urlPath = "v1beta/models/$cleanModel:generateContent"
             val fullUrl = "$BASE_URL$urlPath"
 
             val request = GeminiRequest(
@@ -434,15 +462,16 @@ object GeminiClient {
 
                 val textParsed = if (response.isSuccessful) extractTextFromJson(rawBody) else null
                 val isOk = response.isSuccessful && textParsed != null
+                val modelLabel = if (index > 0) "$cleanModel (Fallback from ${modelsToTry.first()})" else cleanModel
 
                 val reason = if (isOk) "None (Success)" else when {
                     code == 400 && (rawBody.contains("API_KEY_INVALID") || rawBody.contains("not valid")) -> "Invalid API Key"
-                    code == 403 -> "Invalid API Key"
-                    code == 429 && (rawBody.contains("quota") || rawBody.contains("Quota") || rawBody.contains("exhausted")) -> "Quota Exceeded"
-                    code == 429 -> "Rate Limited"
-                    code == 404 -> "Model Not Found"
-                    code == 503 -> "Service Unavailable"
-                    else -> "HTTP $code Error"
+                    code == 403 -> "Invalid API Key / Access Denied"
+                    code == 429 && (rawBody.contains("quota") || rawBody.contains("Quota") || rawBody.contains("exhausted")) -> "Quota Exceeded on $cleanModel"
+                    code == 429 -> "Rate Limited on $cleanModel"
+                    code == 404 -> "Model Not Found ($cleanModel)"
+                    code == 503 -> "Service Unavailable ($cleanModel)"
+                    else -> "HTTP $code Error ($cleanModel)"
                 }
 
                 finalReport = GeminiDebugReport(
@@ -452,7 +481,7 @@ object GeminiClient {
                     httpCode = code.toString(),
                     responseBody = rawBody,
                     errorMessage = if (isOk) "None (Success)" else reason,
-                    modelNameUsed = model,
+                    modelNameUsed = modelLabel,
                     totalRequestsCount = count,
                     finalFailureReason = reason,
                     endpointUsed = fullUrl,
@@ -470,8 +499,8 @@ object GeminiClient {
                     return finalReport
                 }
                 
-                // Stop early if the API key itself is bad/quota limited
-                if (reason == "Invalid API Key" || reason == "Quota Exceeded" || reason == "Rate Limited") {
+                // Stop early only if the API key itself is bad
+                if (reason.contains("Invalid API Key")) {
                     break
                 }
             } catch (e: Exception) {
@@ -485,7 +514,7 @@ object GeminiClient {
                     httpCode = "N/A",
                     responseBody = e.stackTraceToString().take(500),
                     errorMessage = reason,
-                    modelNameUsed = model,
+                    modelNameUsed = cleanModel,
                     totalRequestsCount = count,
                     finalFailureReason = reason,
                     endpointUsed = fullUrl,

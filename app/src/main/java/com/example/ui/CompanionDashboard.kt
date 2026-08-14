@@ -3864,6 +3864,94 @@ fun StrategicAiTab(
                     }
                 }
 
+                // AI Model Selection & Quota Protection
+                val currentModelPref by com.example.api.GeminiClient.selectedModelPref.collectAsStateWithLifecycle()
+                var modelDropdownExpanded by remember { mutableStateOf(false) }
+
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "⚡ GEMINI MODEL & QUOTA OPTIMIZER",
+                                style = MaterialTheme.typography.labelSmall.copy(color = Color(0xFF64B5F6), fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                "FREE TIER: 500 RPD",
+                                style = MaterialTheme.typography.labelSmall.copy(color = RangoLimeGreen, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                            )
+                        }
+
+                        Text(
+                            "Flash Lite models give 500 requests/day (vs 20 on Flash). Auto mode automatically falls back if a quota limit is reached.",
+                            style = MaterialTheme.typography.bodySmall.copy(color = RangoTextMuted, fontSize = 11.sp)
+                        )
+
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(
+                                onClick = { modelDropdownExpanded = true },
+                                modifier = Modifier.fillMaxWidth().height(42.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, Color(0xFF64B5F6).copy(alpha = 0.5f)),
+                                colors = ButtonDefaults.outlinedButtonColors(containerColor = Color(0xFF0F172A))
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val currentLabel = com.example.api.GeminiClient.SUPPORTED_MODELS.find { it.first == currentModelPref }?.second ?: currentModelPref
+                                    Text(
+                                        text = currentLabel,
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowDropDown,
+                                        contentDescription = "Select Model",
+                                        tint = Color(0xFF64B5F6)
+                                    )
+                                }
+                            }
+
+                            DropdownMenu(
+                                expanded = modelDropdownExpanded,
+                                onDismissRequest = { modelDropdownExpanded = false }
+                            ) {
+                                com.example.api.GeminiClient.SUPPORTED_MODELS.forEach { (modelKey, label) ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text(
+                                                    text = label,
+                                                    fontWeight = if (modelKey == currentModelPref) FontWeight.Bold else FontWeight.Normal,
+                                                    color = if (modelKey == currentModelPref) RangoLimeGreen else Color.Unspecified
+                                                )
+                                            }
+                                        },
+                                        onClick = {
+                                            com.example.api.GeminiClient.setSelectedModel(modelKey)
+                                            modelDropdownExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(6.dp))
 
                 // SAVE & TEST button
