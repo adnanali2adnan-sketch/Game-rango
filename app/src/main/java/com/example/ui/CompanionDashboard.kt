@@ -336,10 +336,13 @@ fun CompanionDashboard(
                     )
                     1 -> {
                         val apiKey by viewModel.geminiApiKey.collectAsStateWithLifecycle()
+                        val shareBalanceWithAi by viewModel.shareBalanceWithAi.collectAsStateWithLifecycle()
                         StrategicAiTab(
                             aiAdvice = aiAdvice,
                             isLoading = isLoadingAdvice,
                             apiKey = apiKey,
+                            shareBalanceWithAi = shareBalanceWithAi,
+                            onShareBalanceChange = { viewModel.setShareBalanceWithAi(it) },
                             onApiKeyChange = { viewModel.setGeminiApiKey(it) },
                             onClearApiKey = { viewModel.clearGeminiApiKey() },
                             onRefresh = { viewModel.refreshAiStrategy() }
@@ -3752,6 +3755,8 @@ fun StrategicAiTab(
     aiAdvice: String,
     isLoading: Boolean,
     apiKey: String,
+    shareBalanceWithAi: Boolean,
+    onShareBalanceChange: (Boolean) -> Unit,
     onApiKeyChange: (String) -> Unit,
     onClearApiKey: () -> Unit = {},
     onRefresh: () -> Unit
@@ -3863,6 +3868,52 @@ fun StrategicAiTab(
                         }
                     }
                 }
+
+                // Privacy / Balance Sharing Toggle Card
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    "💰 SHARE BALANCE WITH AI",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        color = if (shareBalanceWithAi) RangoLimeGreen else Color(0xFF90CAF9),
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                )
+                            }
+                            Text(
+                                if (shareBalanceWithAi) "AI receives your wallet balance to calculate conservative or aggressive stakes." else "Balance information is hidden from AI for complete privacy.",
+                                style = MaterialTheme.typography.bodySmall.copy(color = RangoTextMuted, fontSize = 11.sp)
+                            )
+                        }
+                        Switch(
+                            checked = shareBalanceWithAi,
+                            onCheckedChange = { onShareBalanceChange(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.Black,
+                                checkedTrackColor = RangoLimeGreen,
+                                uncheckedThumbColor = RangoTextMuted,
+                                uncheckedTrackColor = Color(0xFF0F172A)
+                            )
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
 
                 // AI Model Selection & Quota Protection
                 val currentModelPref by com.example.api.GeminiClient.selectedModelPref.collectAsStateWithLifecycle()

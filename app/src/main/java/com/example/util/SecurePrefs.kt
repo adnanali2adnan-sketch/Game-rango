@@ -6,6 +6,7 @@ import android.util.Base64
 object SecurePrefs {
     private const val PREFS_NAME = "rango_secure_credentials"
     private const val KEY_GEMINI_API_KEY = "encrypted_gemini_api_key"
+    private const val KEY_SHARE_BALANCE_WITH_AI = "share_balance_with_ai"
 
     fun saveGeminiApiKey(context: Context, key: String) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -26,5 +27,15 @@ object SecurePrefs {
     fun clearGeminiApiKey(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().remove(KEY_GEMINI_API_KEY).apply()
+    }
+
+    fun setShareBalanceWithAi(context: Context, enabled: Boolean) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(KEY_SHARE_BALANCE_WITH_AI, enabled).apply()
+    }
+
+    fun isShareBalanceWithAi(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean(KEY_SHARE_BALANCE_WITH_AI, false) // Default is OFF as requested
     }
 }

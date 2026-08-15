@@ -81,6 +81,13 @@ object GeminiClient {
         _selectedModelPref.value = model
     }
 
+    private val _shareBalanceWithAi = MutableStateFlow(false)
+    val shareBalanceWithAi: StateFlow<Boolean> = _shareBalanceWithAi.asStateFlow()
+
+    fun setShareBalanceWithAi(enabled: Boolean) {
+        _shareBalanceWithAi.value = enabled
+    }
+
     private val _latestReport = MutableStateFlow(GeminiDebugReport())
     val latestReport: StateFlow<GeminiDebugReport> = _latestReport.asStateFlow()
 
@@ -531,60 +538,117 @@ object GeminiClient {
 
     suspend fun analyzeGame(
         apiKey: String,
-        gameType: String,  // "RANGO" / "DRAGON_TIGER" / "AVIATOR" / "ANDAR_BAHAR" / "SEVEN_UP_DOWN" / "BACCARAT"
+        gameType: String,  // "RANGO" / "DRAGON_TIGER" / "AVIATOR" / "ANDAR_BAHAR" / "SEVEN_UP_DOWN" / "BACCARAT" / "ROULETTE" / "MINES" / "CAR_ROULETTE"
         data: String,      // multipliers or history logs
         balance: Double,
-        trendLabel: String
+        trendLabel: String,
+        includeBalance: Boolean = _shareBalanceWithAi.value
     ): String {
+        val balanceInfo = if (includeBalance && balance > 0.0) "\nWALLET BALANCE: PKR $balance" else ""
+
         val prompt = when (gameType) {
             "BACCARAT" -> """
-                You are elite Baccarat card game advisor.
-                Recent results (newest first): $data (P=Player, B=Banker, T=Tie)
-                Balance: PKR $balance. Current trend: $trendLabel.
+                You are an advanced, open-minded AI Casino Intelligence Engine.
+                You have FULL AUTONOMY: do NOT lock yourself into any single rigid strategy or legacy road rule.
                 
-                Your response MUST be formatted exactly as below (maximum 2 lines total, extremely concise, sharp and direct, no disclaimers):
+                GAME: Baccarat$balanceInfo
+                RECENT ROUNDS (Newest first): $data (P=Player, B=Banker, T/TIE=Tie)
+                CURRENT FLOW: $trendLabel
+                
+                ANALYTICAL INSTRUCTIONS:
+                - Autonomously evaluate the real-time sequence for streaks, alternating ping-pong patterns, clustering, momentum shifts, and probability deviations.
+                - Determine whether the current table trend will continue, reverse, or if the market is too choppy.
+                - Make a decisive tactical recommendation with high statistical confidence.
+                
+                Your response MUST be formatted exactly as below (maximum 2 lines total, concise, sharp and direct, no disclaimers):
                 RECOMMENDATION: [PLAYER / BANKER / TIE / STANDBY]
-                REASON: [Short 1-sentence explanation of why]
+                REASON: [Sharp 1-sentence explanation of the dynamic pattern and why this is the best move]
             """.trimIndent()
 
             "DRAGON_TIGER" -> """
-                You are elite Dragon Tiger card game advisor.
-                Recent results (newest first): $data (D=Dragon,T=Tiger,X/P=Tie)
-                Balance: PKR $balance. Current trend: $trendLabel.
+                You are an advanced, open-minded AI Casino Intelligence Engine.
+                You have FULL AUTONOMY: do NOT lock yourself into any single rigid strategy or fixed formula.
                 
-                Your response MUST be formatted exactly as below (maximum 2 lines total, extremely concise, sharp and direct, no disclaimers):
+                GAME: Dragon Tiger$balanceInfo
+                RECENT ROUNDS (Newest first): $data (D=Dragon, T=Tiger, X/P/TIE=Tie)
+                CURRENT FLOW: $trendLabel
+                
+                ANALYTICAL INSTRUCTIONS:
+                - Freely analyze the natural sequence for streak continuation, zigzag alternation, clumping, breakout transitions, or tie probability.
+                - Understand how the table is behaving right now without rigid preconceptions.
+                - Select the most probable winning side based on dynamic pattern intelligence.
+                
+                Your response MUST be formatted exactly as below (maximum 2 lines total, concise, sharp and direct, no disclaimers):
                 RECOMMENDATION: [DRAGON / TIGER / TIE / STANDBY]
-                REASON: [Short 1-sentence explanation of why]
+                REASON: [Sharp 1-sentence explanation of the dynamic pattern and why this is the best move]
             """.trimIndent()
             
             "ANDAR_BAHAR" -> """
-                You are elite Andar Bahar card game advisor.
-                Recent results (newest first): $data (A=Andar, B=Bahar)
-                Balance: PKR $balance. Current trend: $trendLabel.
+                You are an advanced, open-minded AI Casino Intelligence Engine.
+                You have FULL AUTONOMY: do NOT lock yourself into any single rigid strategy.
                 
-                Your response MUST be formatted exactly as below (maximum 2 lines total, extremely concise, sharp and direct, no disclaimers):
+                GAME: Andar Bahar$balanceInfo
+                RECENT ROUNDS (Newest first): $data (A=Andar, B=Bahar)
+                CURRENT FLOW: $trendLabel
+                
+                ANALYTICAL INSTRUCTIONS:
+                - Autonomously analyze side repetition, streak momentum, balance distribution, and reversal frequency.
+                - Formulate the sharpest prediction for the upcoming deal based on live table dynamics.
+                
+                Your response MUST be formatted exactly as below (maximum 2 lines total, concise, sharp and direct, no disclaimers):
                 RECOMMENDATION: [ANDAR / BAHAR / STANDBY]
-                REASON: [Short 1-sentence explanation of why]
+                REASON: [Sharp 1-sentence explanation of the dynamic pattern and why this is the best move]
             """.trimIndent()
             
             "SEVEN_UP_DOWN" -> """
-                You are elite 7 Up Down dice game advisor.
-                Recent results (newest first): $data (U=7 Up, D=7 Down, 7=Seven)
-                Balance: PKR $balance. Current trend: $trendLabel.
+                You are an advanced, open-minded AI Casino Intelligence Engine.
+                You have FULL AUTONOMY: do NOT lock yourself into any single rigid strategy.
                 
-                Your response MUST be formatted exactly as below (maximum 2 lines total, extremely concise, sharp and direct, no disclaimers):
+                GAME: 7 Up Down (Dice)$balanceInfo
+                RECENT ROUNDS (Newest first): $data (U=7 Up [8-12], D=7 Down [2-6], 7=Lucky Seven)
+                CURRENT FLOW: $trendLabel
+                
+                ANALYTICAL INSTRUCTIONS:
+                - Freely evaluate high vs low dice distribution, streak clustering, and mean reversion likelihood.
+                - Deliver a decisive recommendation for the next roll based on dynamic pattern intelligence.
+                
+                Your response MUST be formatted exactly as below (maximum 2 lines total, concise, sharp and direct, no disclaimers):
                 RECOMMENDATION: [UP / DOWN / SEVEN / STANDBY]
-                REASON: [Short 1-sentence explanation of why]
+                REASON: [Sharp 1-sentence explanation of the dynamic pattern and why this is the best move]
+            """.trimIndent()
+
+            "ROULETTE" -> """
+                You are an advanced, open-minded AI Casino Intelligence Engine.
+                You have FULL AUTONOMY: do NOT lock yourself into any single rigid strategy.
+                
+                GAME: European Roulette$balanceInfo
+                RECENT SPINS (Newest first): $data
+                CURRENT FLOW: $trendLabel
+                
+                ANALYTICAL INSTRUCTIONS:
+                - Autonomously analyze color runs (Red/Black), parity (Even/Odd), range (High/Low), dozens, and column momentum.
+                - Spot cold-to-hot transitions and wheel distribution patterns dynamically.
+                
+                Your response MUST be formatted exactly as below (maximum 2 lines total, concise, sharp and direct, no disclaimers):
+                RECOMMENDATION: [BET RED / BET BLACK / BET EVEN / BET ODD / BET 1ST DOZEN / BET 2ND DOZEN / BET 3RD DOZEN / STANDBY]
+                REASON: [Sharp 1-sentence explanation of the dynamic pattern and why this is the best move]
             """.trimIndent()
             
             else -> """
-                You are crash game advisor for $gameType.
-                Recent multipliers: $data
-                Balance: PKR $balance. Trend: $trendLabel.
+                You are an advanced, open-minded AI Game Intelligence Engine.
+                You have FULL AUTONOMY: do NOT lock yourself into any single rigid strategy.
                 
-                Your response MUST be formatted exactly as below (maximum 2 lines total, extremely concise, sharp and direct, no disclaimers):
+                GAME: $gameType (Multiplier / Crash / Rocket)$balanceInfo
+                RECENT MULTIPLIERS (Newest first): $data
+                CURRENT FLOW: $trendLabel
+                
+                ANALYTICAL INSTRUCTIONS:
+                - Autonomously evaluate multiplier volatility, bust clusters, peak cycle intervals, and risk-to-reward ratio.
+                - Advise whether to bet with an optimal safe cashout target (e.g. 1.85x, 2.10x) or skip this round.
+                
+                Your response MUST be formatted exactly as below (maximum 2 lines total, concise, sharp and direct, no disclaimers):
                 RECOMMENDATION: [BET / CASHOUT @ [X]x / SKIP]
-                REASON: [Short 1-sentence explanation of why]
+                REASON: [Sharp 1-sentence explanation of the dynamic pattern and why this is the best move]
             """.trimIndent()
         }
         return getStrategyAdvice(prompt, apiKey)

@@ -155,6 +155,7 @@ class OverlayService : Service() {
     private var geminiAiAdvice = MutableStateFlow("")
     private var isGeminiLoading = MutableStateFlow(false)
     private var geminiApiKey = MutableStateFlow("")
+    private var shareBalanceWithAi = MutableStateFlow(false)
     private var onBackPressCallback: (() -> Unit)? = null
 
     // Media Projection & OCR components
@@ -279,6 +280,7 @@ class OverlayService : Service() {
 
         // Securely pre-load Gemini API profile Key if set by the user
         geminiApiKey.value = com.example.util.SecurePrefs.getGeminiApiKey(this)
+        shareBalanceWithAi.value = com.example.util.SecurePrefs.isShareBalanceWithAi(this)
         
         createNotificationChannel()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -1797,6 +1799,7 @@ class OverlayService : Service() {
                     // Dynamic Gemini Cockpit Live Performance Panel
                     val liveAdvice by geminiAiAdvice.collectAsState()
                     val liveLoading by isGeminiLoading.collectAsState()
+                    val isSharingBalance by shareBalanceWithAi.collectAsState()
                     
                     Card(
                         colors = CardDefaults.cardColors(containerColor = RangoHorizon.copy(alpha = 0.5f)),
@@ -1832,14 +1835,40 @@ class OverlayService : Service() {
                                         fontWeight = FontWeight.Black
                                     )
                                 }
-                                Icon(
-                                    imageVector = Icons.Default.Refresh,
-                                    contentDescription = "Manual Refresh Gemini Strategy Advice",
-                                    tint = RangoLimeGreen,
-                                    modifier = Modifier
-                                        .size(12.dp)
-                                        .clickable { triggerRealtimeGeminiPipeline(force = true) }
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                ) {
+                                    // Mini toggle chip for balance sharing in HUD
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(3.dp))
+                                            .background(if (isSharingBalance) RangoLimeGreen.copy(alpha = 0.25f) else Color.Black.copy(alpha = 0.4f))
+                                            .clickable {
+                                                val newSetting = !isSharingBalance
+                                                shareBalanceWithAi.value = newSetting
+                                                com.example.util.SecurePrefs.setShareBalanceWithAi(this@OverlayService, newSetting)
+                                                com.example.api.GeminiClient.setShareBalanceWithAi(newSetting)
+                                            }
+                                            .padding(horizontal = 4.dp, vertical = 1.5.dp)
+                                    ) {
+                                        Text(
+                                            text = if (isSharingBalance) "💰 BAL: ON" else "💰 BAL: OFF",
+                                            color = if (isSharingBalance) RangoLimeGreen else RangoTextMuted,
+                                            fontSize = if (isLandscape) 5.5.sp else 6.5.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = "Manual Refresh Gemini Strategy Advice",
+                                        tint = RangoLimeGreen,
+                                        modifier = Modifier
+                                            .size(12.dp)
+                                            .clickable { triggerRealtimeGeminiPipeline(force = true) }
+                                    )
+                                }
                             }
                             
                             if (liveLoading) {
@@ -2297,6 +2326,7 @@ class OverlayService : Service() {
             geminiApiKey.value = key
             val game = overlayGame.value
             val currentBalance = walletBalanceInput.value.toDoubleOrNull() ?: 280.89
+            val sendBalance = shareBalanceWithAi.value
 
             if (key.isBlank()) {
                 geminiAiAdvice.value = "⚠️ Please add Gemini API Key on Dashboard to unlock real-time Gemini AI Model!"
@@ -2316,44 +2346,9 @@ class OverlayService : Service() {
                         }
                         val recent20 = recentList.take(20)
                         val bacResult = com.example.data.BaccaratAnalyzer.analyze(recentList)
-                        
-                        val nonTieRounds = recentList.filter { it.result == "P" || it.result == "B" }
-                        val chronologicalNonTies = nonTieRounds.reversed()
-                        val columns = mutableListOf<MutableList<String>>()
-                        for (round in chronologicalNonTies) {
-                            val res = round.result
-                            if (columns.isEmpty() || columns.last().first() != res) {
-                                columns.add(mutableListOf(res))
-                            } else {
-                                columns.last().add(res)
-                            }
-                        }
-                        val bigRoadStr = columns.joinToString(" | ") { col -> col.joinToString(",") }
-
-                        val customPrompt = """
-                            You are an elite, professional Casino Baccarat Game Analyzer.
-                            
-                            CURRENT SESSION DATA:
-                            - Current Game Mode: BACCARAT
-                            - Wallet Balance: PKR $currentBalance
-                            - Last 20 Rounds (Newest first): ${recent20.joinToString(", ") { it.result }} (P=Player, B=Banker, T/TIE=Tie)
-                            
-                            CASINO MULTI-ROAD MATRIX ANALYSIS:
-                            - Big Road Structure: $bigRoadStr
-                            - Big Eye Boy State: ${bacResult.bigEyeBoySignal} (RED = continuation, BLUE = reversal)
-                            - Small Road State: ${bacResult.smallRoadSignal} (RED = continuation, BLUE = reversal)
-                            - Cockroach Road State: ${bacResult.cockroachRoadSignal} (RED = continuation, BLUE = reversal)
-                            - Current Streak: ${bacResult.currentStreak} (Streak length: ${bacResult.streakCount})
-                            - Road Signals Summary: Big Eye Boy = ${bacResult.bigEyeBoySignal}, Small Road = ${bacResult.smallRoadSignal}, Cockroach = ${bacResult.cockroachRoadSignal}
-                            - Offline Road Voting Decision: ${bacResult.finalRoadDecision}
-
-                            Analyze this layout and formulate your tactical strategy.
-                            Your response MUST be formatted exactly as below (maximum 2 lines total, extremely concise, sharp and direct, no disclaimers):
-                            RECOMMENDATION: [PLAYER / BANKER / TIE / STANDBY]
-                            REASON: [Short 1-sentence explanation of why]
-                        """.trimIndent()
-
-                        com.example.api.GeminiClient.getStrategyAdvice(customPrompt, key)
+                        val dataStr = recent20.joinToString(", ") { it.result }
+                        val flowDesc = "Current Streak: ${bacResult.currentStreak} (${bacResult.streakCount} in a row), Table Momentum: ${bacResult.trendLabel}"
+                        com.example.api.GeminiClient.analyzeGame(key, "BACCARAT", dataStr, currentBalance, flowDesc, sendBalance)
                     }
                     "DRAGON_TIGER" -> {
                         val recentList = recentDtRoundsList.value
@@ -2364,44 +2359,9 @@ class OverlayService : Service() {
                         }
                         val recent20 = recentList.take(20)
                         val dtResult = DragonTigerAnalyzer.analyze(recentList)
-                        
-                        val nonTieRounds = recentList.filter { it.result == "D" || it.result == "T" }
-                        val chronologicalNonTies = nonTieRounds.reversed()
-                        val columns = mutableListOf<MutableList<String>>()
-                        for (round in chronologicalNonTies) {
-                            val res = round.result
-                            if (columns.isEmpty() || columns.last().first() != res) {
-                                columns.add(mutableListOf(res))
-                            } else {
-                                columns.last().add(res)
-                            }
-                        }
-                        val bigRoadStr = columns.joinToString(" | ") { col -> col.joinToString(",") }
-
-                        val customPrompt = """
-                            You are an elite, professional Casino Dragon Tiger Game Analyzer.
-                            
-                            CURRENT SESSION DATA:
-                            - Current Game Mode: DRAGON_TIGER
-                            - Wallet Balance: PKR $currentBalance
-                            - Last 20 Rounds (Newest first): ${recent20.joinToString(", ") { it.result }} (D=Dragon, T=Tiger, X/P/TIE=Tie)
-                            
-                            CASINO MULTI-ROAD MATRIX ANALYSIS:
-                            - Big Road Structure: $bigRoadStr
-                            - Big Eye Boy State: ${dtResult.bigEyeBoySignal} (RED = continuation, BLUE = reversal)
-                            - Small Road State: ${dtResult.smallRoadSignal} (RED = continuation, BLUE = reversal)
-                            - Cockroach Road State: ${dtResult.cockroachRoadSignal} (RED = continuation, BLUE = reversal)
-                            - Current Streak: ${dtResult.currentStreak} (Streak length: ${dtResult.streakCount})
-                            - Road Signals Summary: Big Eye Boy = ${dtResult.bigEyeBoySignal}, Small Road = ${dtResult.smallRoadSignal}, Cockroach = ${dtResult.cockroachRoadSignal}
-                            - Offline Road Voting Decision: ${dtResult.finalRoadDecision}
-
-                            Analyze this layout and formulate your tactical strategy.
-                            Your response MUST be formatted exactly as below (maximum 2 lines total, extremely concise, sharp and direct, no disclaimers):
-                            RECOMMENDATION: [DRAGON / TIGER / TIE / STANDBY]
-                            REASON: [Short 1-sentence explanation of why]
-                        """.trimIndent()
-
-                        com.example.api.GeminiClient.getStrategyAdvice(customPrompt, key)
+                        val dataStr = recent20.joinToString(", ") { it.result }
+                        val flowDesc = "Current Streak: ${dtResult.currentStreak} (${dtResult.streakCount} in a row), Table Momentum: ${dtResult.trendLabel}"
+                        com.example.api.GeminiClient.analyzeGame(key, "DRAGON_TIGER", dataStr, currentBalance, flowDesc, sendBalance)
                     }
                     "ANDAR_BAHAR" -> {
                         val recentList = recentAbRoundsList.value
@@ -2412,7 +2372,7 @@ class OverlayService : Service() {
                         }
                         val dataStr = recentList.take(20).joinToString(", ") { it.result }
                         val abResult = com.example.data.AndarBaharAnalyzer.analyze(recentList)
-                        com.example.api.GeminiClient.analyzeGame(key, "ANDAR_BAHAR", dataStr, currentBalance, abResult.trendLabel)
+                        com.example.api.GeminiClient.analyzeGame(key, "ANDAR_BAHAR", dataStr, currentBalance, abResult.trendLabel, sendBalance)
                     }
                     "SEVEN_UP_DOWN" -> {
                         val recentList = recentSevenRoundsList.value
@@ -2423,7 +2383,7 @@ class OverlayService : Service() {
                         }
                         val dataStr = recentList.take(20).joinToString(", ") { it.result }
                         val sevenResult = com.example.data.SevenUpDownAnalyzer.analyze(recentList)
-                        com.example.api.GeminiClient.analyzeGame(key, "SEVEN_UP_DOWN", dataStr, currentBalance, sevenResult.trendLabel)
+                        com.example.api.GeminiClient.analyzeGame(key, "SEVEN_UP_DOWN", dataStr, currentBalance, sevenResult.trendLabel, sendBalance)
                     }
                     "ROULETTE" -> {
                         val recentList = recentRouletteRoundsList.value
@@ -2434,28 +2394,8 @@ class OverlayService : Service() {
                         }
                         val roulResult = com.example.data.RouletteAnalyzer.analyze(recentList)
                         val dataStr = recentList.take(20).joinToString(", ") { "${it.result}(${it.color})" }
-                        val customPrompt = """
-                            You are an elite, professional Casino Roulette Game Analyzer.
-                            
-                            CURRENT SESSION DATA:
-                            - Current Game Mode: ROULETTE
-                            - Wallet Balance: PKR $currentBalance
-                            - Last 20 Spins (Newest first): $dataStr
-                            
-                            ROULETTE STATISTICAL MATRIX:
-                            - Red / Black / Green: ${roulResult.redPct}% RED / ${roulResult.blackPct}% BLACK / ${roulResult.greenPct}% GREEN
-                            - Even / Odd: ${roulResult.evenPct}% EVEN / ${roulResult.oddPct}% ODD
-                            - High / Low: ${roulResult.highPct}% HIGH / ${roulResult.lowPct}% LOW
-                            - Dozens: 1st Dozen = ${roulResult.dozen1Pct}%, 2nd Dozen = ${roulResult.dozen2Pct}%, 3rd Dozen = ${roulResult.dozen3Pct}%
-                            - Current Streak: ${roulResult.currentStreak}
-                            - Trend Summary: ${roulResult.trendLabel}
-                            
-                            Formulate your tactical roulette recommendation.
-                            Your response MUST be formatted exactly as below (maximum 2 lines total, extremely concise, sharp and direct, no disclaimers):
-                            RECOMMENDATION: [BET RED / BET BLACK / BET EVEN / BET ODD / BET 1ST DOZEN / BET 2ND DOZEN / BET 3RD DOZEN / STANDBY]
-                            REASON: [Short 1-sentence explanation of why]
-                        """.trimIndent()
-                        com.example.api.GeminiClient.getStrategyAdvice(customPrompt, key)
+                        val flowDesc = "Red: ${roulResult.redPct}%, Black: ${roulResult.blackPct}%, Even: ${roulResult.evenPct}%, Odd: ${roulResult.oddPct}%, Streak: ${roulResult.currentStreak}"
+                        com.example.api.GeminiClient.analyzeGame(key, "ROULETTE", dataStr, currentBalance, flowDesc, sendBalance)
                     }
                     else -> {
                         val recentList = recentMultipliersList.value.take(10)
@@ -2466,7 +2406,7 @@ class OverlayService : Service() {
                         }
                         val multipliersStr = recentList.joinToString(", ") { "${it}x" }
                         val trend = calculateLiveMetrics(recentMultipliersList.value).trend
-                        com.example.api.GeminiClient.analyzeGame(key, game, multipliersStr, currentBalance, trend)
+                        com.example.api.GeminiClient.analyzeGame(key, game, multipliersStr, currentBalance, trend, sendBalance)
                     }
                 }
 

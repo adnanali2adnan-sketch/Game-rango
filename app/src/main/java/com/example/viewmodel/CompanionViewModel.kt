@@ -44,6 +44,9 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
     private val _geminiApiKey = MutableStateFlow("")
     val geminiApiKey: StateFlow<String> = _geminiApiKey.asStateFlow()
 
+    private val _shareBalanceWithAi = MutableStateFlow(false)
+    val shareBalanceWithAi: StateFlow<Boolean> = _shareBalanceWithAi.asStateFlow()
+
     private val _currentGame = MutableStateFlow("RANGO")
     val currentGame: StateFlow<String> = _currentGame.asStateFlow()
 
@@ -56,10 +59,18 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
         baccaratDao = database.baccaratDao()
         rouletteDao = database.rouletteDao()
         _geminiApiKey.value = com.example.util.SecurePrefs.getGeminiApiKey(context)
+        _shareBalanceWithAi.value = com.example.util.SecurePrefs.isShareBalanceWithAi(context)
+        com.example.api.GeminiClient.setShareBalanceWithAi(_shareBalanceWithAi.value)
         
         // Load default game setting safely
         _currentGame.value = context.getSharedPreferences("RangoPrefs", Context.MODE_PRIVATE)
             .getString("current_game", "RANGO") ?: "RANGO"
+    }
+
+    fun setShareBalanceWithAi(enabled: Boolean) {
+        _shareBalanceWithAi.value = enabled
+        com.example.util.SecurePrefs.setShareBalanceWithAi(context, enabled)
+        com.example.api.GeminiClient.setShareBalanceWithAi(enabled)
     }
 
     fun setGeminiApiKey(key: String) {
@@ -578,44 +589,9 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
                     
                     val recent20 = recentList.take(20)
                     val bacResult = BaccaratAnalyzer.analyze(recentList)
-                    
-                    val nonTieRounds = recentList.filter { it.result == "P" || it.result == "B" }
-                    val chronologicalNonTies = nonTieRounds.reversed()
-                    val columns = mutableListOf<MutableList<String>>()
-                    for (round in chronologicalNonTies) {
-                        val res = round.result
-                        if (columns.isEmpty() || columns.last().first() != res) {
-                            columns.add(mutableListOf(res))
-                        } else {
-                            columns.last().add(res)
-                        }
-                    }
-                    val bigRoadStr = columns.joinToString(" | ") { col -> col.joinToString(",") }
-
-                    val customPrompt = """
-                        You are an elite, professional Casino Baccarat Game Analyzer.
-                        
-                        CURRENT SESSION DATA:
-                        - Current Game Mode: BACCARAT
-                        - Wallet Balance: PKR $balanceValue
-                        - Last 20 Rounds (Newest first): ${recent20.joinToString(", ") { it.result }} (P=Player, B=Banker, T/TIE=Tie)
-                        
-                        CASINO MULTI-ROAD MATRIX ANALYSIS:
-                        - Big Road Structure: $bigRoadStr
-                        - Big Eye Boy State: ${bacResult.bigEyeBoySignal} (RED = continuation, BLUE = reversal)
-                        - Small Road State: ${bacResult.smallRoadSignal} (RED = continuation, BLUE = reversal)
-                        - Cockroach Road State: ${bacResult.cockroachRoadSignal} (RED = continuation, BLUE = reversal)
-                        - Current Streak: ${bacResult.currentStreak} (Streak length: ${bacResult.streakCount})
-                        - Road Signals Summary: Big Eye Boy = ${bacResult.bigEyeBoySignal}, Small Road = ${bacResult.smallRoadSignal}, Cockroach = ${bacResult.cockroachRoadSignal}
-                        - Offline Road Voting Decision: ${bacResult.finalRoadDecision}
-
-                        Analyze this layout and formulate your tactical strategy.
-                        Your response MUST be formatted exactly as below (maximum 2 lines total, extremely concise, sharp and direct, no disclaimers):
-                        RECOMMENDATION: [PLAYER / BANKER / TIE / STANDBY]
-                        REASON: [Short 1-sentence explanation of why]
-                    """.trimIndent()
-
-                    GeminiClient.getStrategyAdvice(customPrompt, customKey)
+                    val dataStr = recent20.joinToString(", ") { it.result }
+                    val flowDesc = "Current Streak: ${bacResult.currentStreak} (${bacResult.streakCount} in a row), Trend: ${bacResult.trendLabel}"
+                    GeminiClient.analyzeGame(customKey, "BACCARAT", dataStr, balanceValue, flowDesc)
                 }
                 "DRAGON_TIGER" -> {
                     val recentList = dtDao.getRecentRounds(30)
@@ -627,44 +603,9 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
                     
                     val recent20 = recentList.take(20)
                     val dtResult = DragonTigerAnalyzer.analyze(recentList)
-                    
-                    val nonTieRounds = recentList.filter { it.result == "D" || it.result == "T" }
-                    val chronologicalNonTies = nonTieRounds.reversed()
-                    val columns = mutableListOf<MutableList<String>>()
-                    for (round in chronologicalNonTies) {
-                        val res = round.result
-                        if (columns.isEmpty() || columns.last().first() != res) {
-                            columns.add(mutableListOf(res))
-                        } else {
-                            columns.last().add(res)
-                        }
-                    }
-                    val bigRoadStr = columns.joinToString(" | ") { col -> col.joinToString(",") }
-
-                    val customPrompt = """
-                        You are an elite, professional Casino Dragon Tiger Game Analyzer.
-                        
-                        CURRENT SESSION DATA:
-                        - Current Game Mode: DRAGON_TIGER
-                        - Wallet Balance: PKR $balanceValue
-                        - Last 20 Rounds (Newest first): ${recent20.joinToString(", ") { it.result }} (D=Dragon, T=Tiger, X/P/TIE=Tie)
-                        
-                        CASINO MULTI-ROAD MATRIX ANALYSIS:
-                        - Big Road Structure: $bigRoadStr
-                        - Big Eye Boy State: ${dtResult.bigEyeBoySignal} (RED = continuation, BLUE = reversal)
-                        - Small Road State: ${dtResult.smallRoadSignal} (RED = continuation, BLUE = reversal)
-                        - Cockroach Road State: ${dtResult.cockroachRoadSignal} (RED = continuation, BLUE = reversal)
-                        - Current Streak: ${dtResult.currentStreak} (Streak length: ${dtResult.streakCount})
-                        - Road Signals Summary: Big Eye Boy = ${dtResult.bigEyeBoySignal}, Small Road = ${dtResult.smallRoadSignal}, Cockroach = ${dtResult.cockroachRoadSignal}
-                        - Offline Road Voting Decision: ${dtResult.finalRoadDecision}
-
-                        Analyze this layout and formulate your tactical strategy.
-                        Your response MUST be formatted exactly as below (maximum 2 lines total, extremely concise, sharp and direct, no disclaimers):
-                        RECOMMENDATION: [DRAGON / TIGER / TIE / STANDBY]
-                        REASON: [Short 1-sentence explanation of why]
-                    """.trimIndent()
-
-                    GeminiClient.getStrategyAdvice(customPrompt, customKey)
+                    val dataStr = recent20.joinToString(", ") { it.result }
+                    val flowDesc = "Current Streak: ${dtResult.currentStreak} (${dtResult.streakCount} in a row), Table Momentum: ${dtResult.trendLabel}"
+                    GeminiClient.analyzeGame(customKey, "DRAGON_TIGER", dataStr, balanceValue, flowDesc)
                 }
                 "ANDAR_BAHAR" -> {
                     val recentList = abDao.getRecentRounds(30)
@@ -697,28 +638,8 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
                     }
                     val roulResult = RouletteAnalyzer.analyze(recentList)
                     val dataStr = recentList.take(20).joinToString(", ") { "${it.result}(${it.color})" }
-                    val customPrompt = """
-                        You are an elite, professional Casino Roulette Game Analyzer.
-                        
-                        CURRENT SESSION DATA:
-                        - Current Game Mode: ROULETTE
-                        - Wallet Balance: PKR $balanceValue
-                        - Last 20 Spins (Newest first): $dataStr
-                        
-                        ROULETTE STATISTICAL MATRIX:
-                        - Red / Black / Green: ${roulResult.redPct}% RED / ${roulResult.blackPct}% BLACK / ${roulResult.greenPct}% GREEN
-                        - Even / Odd: ${roulResult.evenPct}% EVEN / ${roulResult.oddPct}% ODD
-                        - High / Low: ${roulResult.highPct}% HIGH / ${roulResult.lowPct}% LOW
-                        - Dozens: 1st Dozen = ${roulResult.dozen1Pct}%, 2nd Dozen = ${roulResult.dozen2Pct}%, 3rd Dozen = ${roulResult.dozen3Pct}%
-                        - Current Streak: ${roulResult.currentStreak}
-                        - Trend Summary: ${roulResult.trendLabel}
-                        
-                        Formulate your tactical roulette recommendation.
-                        Your response MUST be formatted exactly as below (maximum 2 lines total, extremely concise, sharp and direct, no disclaimers):
-                        RECOMMENDATION: [BET RED / BET BLACK / BET EVEN / BET ODD / BET 1ST DOZEN / BET 2ND DOZEN / BET 3RD DOZEN / STANDBY]
-                        REASON: [Short 1-sentence explanation of why]
-                    """.trimIndent()
-                    GeminiClient.getStrategyAdvice(customPrompt, customKey)
+                    val flowDesc = "Red: ${roulResult.redPct}%, Black: ${roulResult.blackPct}%, Even: ${roulResult.evenPct}%, Odd: ${roulResult.oddPct}%, Streak: ${roulResult.currentStreak}"
+                    GeminiClient.analyzeGame(customKey, "ROULETTE", dataStr, balanceValue, flowDesc)
                 }
                 else -> {
                     val recentList = repository.getRecentLimit(15)
