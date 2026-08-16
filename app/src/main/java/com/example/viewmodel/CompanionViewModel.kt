@@ -577,6 +577,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
             val game = _currentGame.value
             val customKey = _geminiApiKey.value
             val balanceValue = userBalanceInput.value.toDoubleOrNull() ?: 280.89
+            val shareBal = _shareBalanceWithAi.value
 
             val answer = when (game) {
                 "BACCARAT" -> {
@@ -591,7 +592,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
                     val bacResult = BaccaratAnalyzer.analyze(recentList)
                     val dataStr = recent20.joinToString(", ") { it.result }
                     val flowDesc = "Current Streak: ${bacResult.currentStreak} (${bacResult.streakCount} in a row), Trend: ${bacResult.trendLabel}"
-                    GeminiClient.analyzeGame(customKey, "BACCARAT", dataStr, balanceValue, flowDesc)
+                    GeminiClient.analyzeGame(customKey, "BACCARAT", dataStr, balanceValue, flowDesc, shareBal)
                 }
                 "DRAGON_TIGER" -> {
                     val recentList = dtDao.getRecentRounds(30)
@@ -605,7 +606,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
                     val dtResult = DragonTigerAnalyzer.analyze(recentList)
                     val dataStr = recent20.joinToString(", ") { it.result }
                     val flowDesc = "Current Streak: ${dtResult.currentStreak} (${dtResult.streakCount} in a row), Table Momentum: ${dtResult.trendLabel}"
-                    GeminiClient.analyzeGame(customKey, "DRAGON_TIGER", dataStr, balanceValue, flowDesc)
+                    GeminiClient.analyzeGame(customKey, "DRAGON_TIGER", dataStr, balanceValue, flowDesc, shareBal)
                 }
                 "ANDAR_BAHAR" -> {
                     val recentList = abDao.getRecentRounds(30)
@@ -616,7 +617,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
                     }
                     val dataStr = recentList.take(20).joinToString(", ") { it.result }
                     val abResult = AndarBaharAnalyzer.analyze(recentList)
-                    GeminiClient.analyzeGame(customKey, "ANDAR_BAHAR", dataStr, balanceValue, abResult.trendLabel)
+                    GeminiClient.analyzeGame(customKey, "ANDAR_BAHAR", dataStr, balanceValue, abResult.trendLabel, shareBal)
                 }
                 "SEVEN_UP_DOWN" -> {
                     val recentList = sevenDao.getRecentRounds(30)
@@ -627,7 +628,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
                     }
                     val dataStr = recentList.take(20).joinToString(", ") { it.result }
                     val sevenResult = SevenUpDownAnalyzer.analyze(recentList)
-                    GeminiClient.analyzeGame(customKey, "SEVEN_UP_DOWN", dataStr, balanceValue, sevenResult.trendLabel)
+                    GeminiClient.analyzeGame(customKey, "SEVEN_UP_DOWN", dataStr, balanceValue, sevenResult.trendLabel, shareBal)
                 }
                 "ROULETTE" -> {
                     val recentList = rouletteDao.getRecentRounds(30)
@@ -639,7 +640,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
                     val roulResult = RouletteAnalyzer.analyze(recentList)
                     val dataStr = recentList.take(20).joinToString(", ") { "${it.result}(${it.color})" }
                     val flowDesc = "Red: ${roulResult.redPct}%, Black: ${roulResult.blackPct}%, Even: ${roulResult.evenPct}%, Odd: ${roulResult.oddPct}%, Streak: ${roulResult.currentStreak}"
-                    GeminiClient.analyzeGame(customKey, "ROULETTE", dataStr, balanceValue, flowDesc)
+                    GeminiClient.analyzeGame(customKey, "ROULETTE", dataStr, balanceValue, flowDesc, shareBal)
                 }
                 else -> {
                     val recentList = repository.getRecentLimit(15)
@@ -651,7 +652,7 @@ class CompanionViewModel(application: Application) : AndroidViewModel(applicatio
                     val multipliersStr = recentList.joinToString(", ") { "${it.multiplier}x" }
                     val localStats = calculateLocalMetrics()
                     val trend = localStats.localRiskScore
-                    GeminiClient.analyzeGame(customKey, game, multipliersStr, balanceValue, trend)
+                    GeminiClient.analyzeGame(customKey, game, multipliersStr, balanceValue, trend, shareBal)
                 }
             }
 

@@ -658,7 +658,8 @@ class OverlayService : Service() {
 
     private fun addDragonTigerRoundResult(result: String) {
         serviceScope.launch {
-            val localResult = com.example.data.DragonTigerAnalyzer.analyze(recentDtRoundsList.value)
+            val freshHistory = dtDao.getRecentRounds(30)
+            val localResult = com.example.data.DragonTigerAnalyzer.analyze(freshHistory)
             val pred = localResult.predictedNext
             val hasGemini = geminiApiKey.value.isNotBlank() && geminiAiAdvice.value.isNotBlank()
             val source = if (hasGemini) "AI" else "LOCAL"
@@ -679,6 +680,8 @@ class OverlayService : Service() {
                 predictionSource = source,
                 isWin = win
             ))
+            val updatedHistory = dtDao.getRecentRounds(30)
+            recentDtRoundsList.value = updatedHistory
             captureLogs.value = "Result logged: $result (${if (win == true) "WIN" else if (win == false) "LOSS" else "WAIT"})"
             triggerRealtimeGeminiPipeline(force = true)
         }
@@ -688,9 +691,9 @@ class OverlayService : Service() {
         serviceScope.launch {
             dtDao.deleteLastRound()
             captureLogs.value = "Last round undone"
-            val remaining = dtDao.getRecentRounds(1)
+            val remaining = dtDao.getRecentRounds(30)
+            recentDtRoundsList.value = remaining
             if (remaining.isEmpty()) {
-                recentDtRoundsList.value = emptyList()
                 geminiAiAdvice.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
             } else {
                 triggerRealtimeGeminiPipeline(force = true)
@@ -709,7 +712,8 @@ class OverlayService : Service() {
 
     private fun addAndarBaharRoundResult(result: String) {
         serviceScope.launch {
-            val localResult = com.example.data.AndarBaharAnalyzer.analyze(recentAbRoundsList.value)
+            val freshHistory = abDao.getRecentRounds(30)
+            val localResult = com.example.data.AndarBaharAnalyzer.analyze(freshHistory)
             val pred = localResult.predictedNext
             val hasGemini = geminiApiKey.value.isNotBlank() && geminiAiAdvice.value.isNotBlank()
             val source = if (hasGemini) "AI" else "LOCAL"
@@ -730,6 +734,8 @@ class OverlayService : Service() {
                 predictionSource = source,
                 isWin = win
             ))
+            val updatedHistory = abDao.getRecentRounds(30)
+            recentAbRoundsList.value = updatedHistory
             captureLogs.value = "Result logged: $result (${if (win == true) "WIN" else if (win == false) "LOSS" else "WAIT"})"
             triggerRealtimeGeminiPipeline(force = true)
         }
@@ -739,9 +745,9 @@ class OverlayService : Service() {
         serviceScope.launch {
             abDao.deleteLastRound()
             captureLogs.value = "Last round undone"
-            val remaining = abDao.getRecentRounds(1)
+            val remaining = abDao.getRecentRounds(30)
+            recentAbRoundsList.value = remaining
             if (remaining.isEmpty()) {
-                recentAbRoundsList.value = emptyList()
                 geminiAiAdvice.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
             } else {
                 triggerRealtimeGeminiPipeline(force = true)
@@ -760,7 +766,8 @@ class OverlayService : Service() {
 
     private fun addSevenUpDownRoundResult(result: String) {
         serviceScope.launch {
-            val localResult = com.example.data.SevenUpDownAnalyzer.analyze(recentSevenRoundsList.value)
+            val freshHistory = sevenDao.getRecentRounds(30)
+            val localResult = com.example.data.SevenUpDownAnalyzer.analyze(freshHistory)
             val pred = localResult.predictedNext
             val hasGemini = geminiApiKey.value.isNotBlank() && geminiAiAdvice.value.isNotBlank()
             val source = if (hasGemini) "AI" else "LOCAL"
@@ -782,6 +789,8 @@ class OverlayService : Service() {
                 predictionSource = source,
                 isWin = win
             ))
+            val updatedHistory = sevenDao.getRecentRounds(30)
+            recentSevenRoundsList.value = updatedHistory
             captureLogs.value = "Result logged: $result (${if (win == true) "WIN" else if (win == false) "LOSS" else "WAIT"})"
             triggerRealtimeGeminiPipeline(force = true)
         }
@@ -791,9 +800,9 @@ class OverlayService : Service() {
         serviceScope.launch {
             sevenDao.deleteLastRound()
             captureLogs.value = "Last round undone"
-            val remaining = sevenDao.getRecentRounds(1)
+            val remaining = sevenDao.getRecentRounds(30)
+            recentSevenRoundsList.value = remaining
             if (remaining.isEmpty()) {
-                recentSevenRoundsList.value = emptyList()
                 geminiAiAdvice.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
             } else {
                 triggerRealtimeGeminiPipeline(force = true)
@@ -812,7 +821,8 @@ class OverlayService : Service() {
 
     private fun addBaccaratRoundResult(result: String) {
         serviceScope.launch {
-            val localResult = com.example.data.BaccaratAnalyzer.analyze(recentBaccaratRoundsList.value)
+            val freshHistory = baccaratDao.getRecentRounds(30)
+            val localResult = com.example.data.BaccaratAnalyzer.analyze(freshHistory)
             val pred = localResult.predictedNext
             val hasGemini = geminiApiKey.value.isNotBlank() && geminiAiAdvice.value.isNotBlank()
             val source = if (hasGemini) "AI" else "LOCAL"
@@ -834,6 +844,8 @@ class OverlayService : Service() {
                 predictionSource = source,
                 isWin = win
             ))
+            val updatedHistory = baccaratDao.getRecentRounds(30)
+            recentBaccaratRoundsList.value = updatedHistory
             captureLogs.value = "Result logged: $result (${if (win == true) "WIN" else if (win == false) "LOSS" else "WAIT"})"
             triggerRealtimeGeminiPipeline(force = true)
         }
@@ -843,9 +855,9 @@ class OverlayService : Service() {
         serviceScope.launch {
             baccaratDao.deleteLastRound()
             captureLogs.value = "Last round undone"
-            val remaining = baccaratDao.getRecentRounds(1)
+            val remaining = baccaratDao.getRecentRounds(30)
+            recentBaccaratRoundsList.value = remaining
             if (remaining.isEmpty()) {
-                recentBaccaratRoundsList.value = emptyList()
                 geminiAiAdvice.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
             } else {
                 triggerRealtimeGeminiPipeline(force = true)
@@ -864,7 +876,8 @@ class OverlayService : Service() {
 
     private fun addRouletteRoundResult(result: String) {
         serviceScope.launch {
-            val localResult = com.example.data.RouletteAnalyzer.analyze(recentRouletteRoundsList.value)
+            val freshHistory = rouletteDao.getRecentRounds(30)
+            val localResult = com.example.data.RouletteAnalyzer.analyze(freshHistory)
             val pred = localResult.suggestedBet
             val hasGemini = geminiApiKey.value.isNotBlank() && geminiAiAdvice.value.isNotBlank()
             val source = if (hasGemini) "AI" else "LOCAL"
@@ -909,6 +922,8 @@ class OverlayService : Service() {
                 predictionSource = source,
                 isWin = win
             ))
+            val updatedHistory = rouletteDao.getRecentRounds(30)
+            recentRouletteRoundsList.value = updatedHistory
             captureLogs.value = "Result logged: $result (${if (win == true) "WIN" else if (win == false) "LOSS" else "WAIT"})"
             triggerRealtimeGeminiPipeline(force = true)
         }
@@ -918,9 +933,9 @@ class OverlayService : Service() {
         serviceScope.launch {
             rouletteDao.deleteLastRound()
             captureLogs.value = "Last round undone"
-            val remaining = rouletteDao.getRecentRounds(1)
+            val remaining = rouletteDao.getRecentRounds(30)
+            recentRouletteRoundsList.value = remaining
             if (remaining.isEmpty()) {
-                recentRouletteRoundsList.value = emptyList()
                 geminiAiAdvice.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
             } else {
                 triggerRealtimeGeminiPipeline(force = true)
@@ -1126,7 +1141,7 @@ class OverlayService : Service() {
         val configuration = androidx.compose.ui.platform.LocalConfiguration.current
         val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
-        val expandedWidthDp = if (isLandscape) 190.dp else 145.dp
+        val expandedWidthDp = if (isLandscape) 190.dp else 150.dp
         val expandedMaxHeightDp = if (isLandscape) {
             (configuration.screenHeightDp * 0.95f).dp
         } else {
@@ -1813,26 +1828,30 @@ class OverlayService : Service() {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { isGeminiExpanded = !isGeminiExpanded }
                                     .padding(vertical = 1.5.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                    modifier = Modifier
+                                        .weight(1f, fill = false)
+                                        .clickable { isGeminiExpanded = !isGeminiExpanded }
                                 ) {
                                     Icon(
                                         imageVector = if (isGeminiExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                                         contentDescription = "Toggle Gemini Advice Expansion",
                                         tint = RangoDesertGold,
-                                        modifier = Modifier.size(12.dp)
+                                        modifier = Modifier.size(11.dp)
                                     )
                                     Text(
-                                        "🔮 GEMINI AI RESPONSE",
+                                        text = if (isLandscape) "🔮 GEMINI AI" else "🔮 GEMINI AI",
                                         color = RangoDesertGold,
-                                        fontSize = if (isLandscape) 7.5.sp else 8.5.sp,
-                                        fontWeight = FontWeight.Black
+                                        fontSize = if (isLandscape) 7.sp else 7.5.sp,
+                                        fontWeight = FontWeight.Black,
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                 }
                                 Row(
@@ -1850,13 +1869,15 @@ class OverlayService : Service() {
                                                 com.example.util.SecurePrefs.setShareBalanceWithAi(this@OverlayService, newSetting)
                                                 com.example.api.GeminiClient.setShareBalanceWithAi(newSetting)
                                             }
-                                            .padding(horizontal = 4.dp, vertical = 1.5.dp)
+                                            .padding(horizontal = 4.dp, vertical = 2.dp)
                                     ) {
                                         Text(
                                             text = if (isSharingBalance) "💰 BAL: ON" else "💰 BAL: OFF",
                                             color = if (isSharingBalance) RangoLimeGreen else RangoTextMuted,
-                                            fontSize = if (isLandscape) 5.5.sp else 6.5.sp,
-                                            fontWeight = FontWeight.Bold
+                                            fontSize = if (isLandscape) 6.sp else 6.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            softWrap = false
                                         )
                                     }
 
@@ -2338,7 +2359,8 @@ class OverlayService : Service() {
             try {
                 val adviceResult = when (game) {
                     "BACCARAT" -> {
-                        val recentList = recentBaccaratRoundsList.value
+                        val recentList = baccaratDao.getRecentRounds(30)
+                        recentBaccaratRoundsList.value = recentList
                         if (recentList.isEmpty()) {
                             geminiAiAdvice.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
                             isGeminiLoading.value = false
@@ -2351,7 +2373,8 @@ class OverlayService : Service() {
                         com.example.api.GeminiClient.analyzeGame(key, "BACCARAT", dataStr, currentBalance, flowDesc, sendBalance)
                     }
                     "DRAGON_TIGER" -> {
-                        val recentList = recentDtRoundsList.value
+                        val recentList = dtDao.getRecentRounds(30)
+                        recentDtRoundsList.value = recentList
                         if (recentList.isEmpty()) {
                             geminiAiAdvice.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
                             isGeminiLoading.value = false
@@ -2364,7 +2387,8 @@ class OverlayService : Service() {
                         com.example.api.GeminiClient.analyzeGame(key, "DRAGON_TIGER", dataStr, currentBalance, flowDesc, sendBalance)
                     }
                     "ANDAR_BAHAR" -> {
-                        val recentList = recentAbRoundsList.value
+                        val recentList = abDao.getRecentRounds(30)
+                        recentAbRoundsList.value = recentList
                         if (recentList.isEmpty()) {
                             geminiAiAdvice.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
                             isGeminiLoading.value = false
@@ -2375,7 +2399,8 @@ class OverlayService : Service() {
                         com.example.api.GeminiClient.analyzeGame(key, "ANDAR_BAHAR", dataStr, currentBalance, abResult.trendLabel, sendBalance)
                     }
                     "SEVEN_UP_DOWN" -> {
-                        val recentList = recentSevenRoundsList.value
+                        val recentList = sevenDao.getRecentRounds(30)
+                        recentSevenRoundsList.value = recentList
                         if (recentList.isEmpty()) {
                             geminiAiAdvice.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
                             isGeminiLoading.value = false
@@ -2386,7 +2411,8 @@ class OverlayService : Service() {
                         com.example.api.GeminiClient.analyzeGame(key, "SEVEN_UP_DOWN", dataStr, currentBalance, sevenResult.trendLabel, sendBalance)
                     }
                     "ROULETTE" -> {
-                        val recentList = recentRouletteRoundsList.value
+                        val recentList = rouletteDao.getRecentRounds(30)
+                        recentRouletteRoundsList.value = recentList
                         if (recentList.isEmpty()) {
                             geminiAiAdvice.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
                             isGeminiLoading.value = false
@@ -2398,14 +2424,15 @@ class OverlayService : Service() {
                         com.example.api.GeminiClient.analyzeGame(key, "ROULETTE", dataStr, currentBalance, flowDesc, sendBalance)
                     }
                     else -> {
-                        val recentList = recentMultipliersList.value.take(10)
+                        val recentList = repository.getRecentLimit(15).map { it.multiplier }
+                        recentMultipliersList.value = recentList
                         if (recentList.isEmpty()) {
                             geminiAiAdvice.value = "🔄 Session Reset!\nAI has forgotten previous history. Please log new rounds to build a fresh trend pattern."
                             isGeminiLoading.value = false
                             return@launch
                         }
-                        val multipliersStr = recentList.joinToString(", ") { "${it}x" }
-                        val trend = calculateLiveMetrics(recentMultipliersList.value).trend
+                        val multipliersStr = recentList.take(10).joinToString(", ") { "${it}x" }
+                        val trend = calculateLiveMetrics(recentList).trend
                         com.example.api.GeminiClient.analyzeGame(key, game, multipliersStr, currentBalance, trend, sendBalance)
                     }
                 }

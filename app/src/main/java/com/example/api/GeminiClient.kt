@@ -544,7 +544,17 @@ object GeminiClient {
         trendLabel: String,
         includeBalance: Boolean = _shareBalanceWithAi.value
     ): String {
-        val balanceInfo = if (includeBalance && balance > 0.0) "\nWALLET BALANCE: PKR $balance" else ""
+        val balanceInfo = if (includeBalance && balance > 0.0) {
+            "\nUSER WALLET BALANCE: PKR $balance (Balance sharing is ON: Use this bankroll to calculate conservative or aggressive stake sizing in your analysis)"
+        } else {
+            ""
+        }
+
+        val balanceInstruction = if (includeBalance && balance > 0.0) {
+            "- Factor in user's bankroll (PKR $balance) to dynamically gauge risk tolerance and stake level."
+        } else {
+            ""
+        }
 
         val prompt = when (gameType) {
             "BACCARAT" -> """
@@ -558,6 +568,7 @@ object GeminiClient {
                 ANALYTICAL INSTRUCTIONS:
                 - Autonomously evaluate the real-time sequence for streaks, alternating ping-pong patterns, clustering, momentum shifts, and probability deviations.
                 - Determine whether the current table trend will continue, reverse, or if the market is too choppy.
+                $balanceInstruction
                 - Make a decisive tactical recommendation with high statistical confidence.
                 
                 Your response MUST be formatted exactly as below (maximum 2 lines total, concise, sharp and direct, no disclaimers):
@@ -576,6 +587,7 @@ object GeminiClient {
                 ANALYTICAL INSTRUCTIONS:
                 - Freely analyze the natural sequence for streak continuation, zigzag alternation, clumping, breakout transitions, or tie probability.
                 - Understand how the table is behaving right now without rigid preconceptions.
+                $balanceInstruction
                 - Select the most probable winning side based on dynamic pattern intelligence.
                 
                 Your response MUST be formatted exactly as below (maximum 2 lines total, concise, sharp and direct, no disclaimers):
@@ -593,6 +605,7 @@ object GeminiClient {
                 
                 ANALYTICAL INSTRUCTIONS:
                 - Autonomously analyze side repetition, streak momentum, balance distribution, and reversal frequency.
+                $balanceInstruction
                 - Formulate the sharpest prediction for the upcoming deal based on live table dynamics.
                 
                 Your response MUST be formatted exactly as below (maximum 2 lines total, concise, sharp and direct, no disclaimers):
@@ -610,6 +623,7 @@ object GeminiClient {
                 
                 ANALYTICAL INSTRUCTIONS:
                 - Freely evaluate high vs low dice distribution, streak clustering, and mean reversion likelihood.
+                $balanceInstruction
                 - Deliver a decisive recommendation for the next roll based on dynamic pattern intelligence.
                 
                 Your response MUST be formatted exactly as below (maximum 2 lines total, concise, sharp and direct, no disclaimers):
@@ -628,6 +642,7 @@ object GeminiClient {
                 ANALYTICAL INSTRUCTIONS:
                 - Autonomously analyze color runs (Red/Black), parity (Even/Odd), range (High/Low), dozens, and column momentum.
                 - Spot cold-to-hot transitions and wheel distribution patterns dynamically.
+                $balanceInstruction
                 
                 Your response MUST be formatted exactly as below (maximum 2 lines total, concise, sharp and direct, no disclaimers):
                 RECOMMENDATION: [BET RED / BET BLACK / BET EVEN / BET ODD / BET 1ST DOZEN / BET 2ND DOZEN / BET 3RD DOZEN / STANDBY]
@@ -645,6 +660,7 @@ object GeminiClient {
                 ANALYTICAL INSTRUCTIONS:
                 - Autonomously evaluate multiplier volatility, bust clusters, peak cycle intervals, and risk-to-reward ratio.
                 - Advise whether to bet with an optimal safe cashout target (e.g. 1.85x, 2.10x) or skip this round.
+                $balanceInstruction
                 
                 Your response MUST be formatted exactly as below (maximum 2 lines total, concise, sharp and direct, no disclaimers):
                 RECOMMENDATION: [BET / CASHOUT @ [X]x / SKIP]
